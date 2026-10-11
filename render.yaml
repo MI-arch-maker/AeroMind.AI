@@ -19,7 +19,7 @@ services:
       - key: AEROMIND_SESSION_SECRET
         generateValue: true
       - key: AEROMIND_SUPERADMIN_EMAILS
-        sync: false
+        value: mcgregoralvin14@gmail.com
       - key: ENTRA_TENANT_ID
         sync: false
       - key: ENTRA_CLIENT_ID

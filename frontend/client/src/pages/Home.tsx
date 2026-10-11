@@ -143,6 +143,8 @@ import {
   Wrench,
   Gauge,
   Lightbulb,
+  LogIn,
+  LogOut,
   Rotate3d,
   X,
   Zap,
@@ -175,6 +177,60 @@ const APP_VERSION = "18.27.0";
 
 const DEFAULT_MISSION_BRIEF =
   "Inspection d’une ligne électrique sur 18 km, capteur stabilisé, retour supervisé.";
+
+type SessionUser = { email?: string; name?: string; role?: string };
+
+function SessionControls() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const response = await fetch("/api/auth/oidc/me", { credentials: "include" });
+      setUser(response.ok ? ((await response.json()) as SessionUser) : null);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    const onSessionChanged = () => void refresh();
+    window.addEventListener("aeromind-auth-changed", onSessionChanged);
+    return () => window.removeEventListener("aeromind-auth-changed", onSessionChanged);
+  }, []);
+
+  const login = () => window.location.assign("/api/auth/oidc/login");
+  const logout = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/auth/oidc/logout", { method: "POST", credentials: "include" });
+      setUser(null);
+      window.dispatchEvent(new Event("aeromind-auth-changed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <div className="session-controls" aria-live="polite">Vérification de la session…</div>;
+  if (!user) {
+    return (
+      <div className="session-controls">
+        <div className="session-copy"><strong>Session fermée</strong><small>Connectez-vous pour synchroniser AeroMind.</small></div>
+        <button className="primary-button session-button" onClick={login} type="button"><LogIn size={14} /> Se connecter</button>
+      </div>
+    );
+  }
+  return (
+    <div className="session-controls">
+      <div className="session-copy"><strong>{user.name || user.email || "Compte AeroMind"}</strong><small>Session active · {user.role === "super_admin" ? "Super-Admin" : "Utilisateur"}</small></div>
+      <button className="secondary-button session-button" onClick={() => void logout()} disabled={busy} type="button"><LogOut size={14} /> {busy ? "Déconnexion…" : "Se déconnecter"}</button>
+    </div>
+  );
+}
 
 /** Formatage d’une valeur de proposition selon son unité. */
 const formatProposalValue = (value: number, unit: string) => {
@@ -11936,6 +11992,7 @@ export default function Home() {
               <small>SECURE</small>
             </button>
           )}
+          <SessionControls />
           <button
             className="user-row"
             onClick={() => {

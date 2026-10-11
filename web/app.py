@@ -10,6 +10,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .copilot import router as copilot_router
+from .admin import activity as admin_activity, create_account, list_accounts, update_account
 from .oidc import _verified, router as oidc_router
 
 
@@ -108,7 +109,7 @@ def _trpc_error(status_code: int, code: str, message: str) -> JSONResponse:
 
 
 @app.api_route('/api/trpc/{procedure:path}', methods=['GET', 'POST'], include_in_schema=False)
-async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(default=None)):
+async def trpc_compat(request: Request, procedure: str, aeromind_session: str | None = Cookie(default=None)):
     """Small compatibility bridge for the legacy React query layer.
 
     Business operations remain on the Python API; these responses prevent the
@@ -125,6 +126,15 @@ async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(defa
             return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
         if current_user['role'] != 'super_admin':
             return _trpc_error(403, 'FORBIDDEN', 'Super-Admin permission required')
+    payload: dict = {}
+    if request.method == 'POST':
+        try:
+            raw_payload = await request.json()
+            if isinstance(raw_payload, list):
+                raw_payload = raw_payload[0] if raw_payload else {}
+            payload = raw_payload.get('json', raw_payload) if isinstance(raw_payload, dict) else {}
+        except Exception:
+            payload = {}
     if name.endswith('auth.me'):
         data = current_user
     elif name.endswith('auth.logout'):
@@ -135,11 +145,25 @@ async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(defa
         data = {'available': bool(settings.openai_api_key), 'provider': 'OpenAI-compatible' if settings.openai_api_key else 'local'}
     elif name.endswith('labBench.status'):
         data = {'ready': True, 'mode': 'safe-python'}
+    elif name.endswith('superAdmin.accounts'):
+        data = list_accounts()
     elif name.endswith('superAdmin.activity'):
-        data = {'projects': [], 'runs': [], 'events': [], 'adminEvents': [], 'totals': {}}
+        data = admin_activity()
+    elif name.endswith('superAdmin.createAccount'):
+        try:
+            data = create_account(current_user, payload.get('email', ''), payload.get('name', ''), payload.get('role', 'user'))
+        except ValueError as exc:
+            return _trpc_error(400, 'BAD_REQUEST', str(exc))
+    elif name.endswith('superAdmin.updateAccount'):
+        try:
+            account_id = str(payload.get('id', ''))
+            changes = {key: value for key, value in payload.items() if key != 'id'}
+            data = update_account(current_user, account_id, changes)
+        except (KeyError, ValueError) as exc:
+            return _trpc_error(400, 'BAD_REQUEST', str(exc))
     elif any(name.endswith(suffix) for suffix in (
         'projects.list', 'simulationRuns.list', 'designVersions.list',
-        'reports.list', 'superAdmin.accounts', 'auditEvents.list',
+        'reports.list', 'auditEvents.list',
     )):
         data = []
     elif name.endswith('labBench.registry'):

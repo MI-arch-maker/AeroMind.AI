@@ -321,6 +321,34 @@ button:disabled {
   font-size: 9px;
   margin-top: 3px;
 }
+.session-controls {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 8px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: rgba(117, 226, 220, 0.045);
+}
+.session-copy strong,
+.session-copy small {
+  display: block;
+}
+.session-copy strong {
+  color: var(--text);
+  font-size: 10px;
+}
+.session-copy small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.session-button {
+  width: 100%;
+  min-height: 32px;
+  font-size: 10px;
+}
 .main-shell {
   min-width: 0;
   flex: 1;

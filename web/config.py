@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     environment: Literal['development', 'staging', 'production'] = Field('production', alias='AEROMIND_ENV')
     port: int = Field(10000, alias='PORT')
     session_secret: str = Field(..., alias='AEROMIND_SESSION_SECRET')
-    superadmin_emails: str = Field('', alias='AEROMIND_SUPERADMIN_EMAILS')
+    superadmin_emails: str = Field('mcgregoralvin14@gmail.com', alias='AEROMIND_SUPERADMIN_EMAILS')
     allowed_origins: str = Field('', alias='AEROMIND_ALLOWED_ORIGINS')
     allowed_hosts: str = Field('*.onrender.com,localhost,127.0.0.1', alias='AEROMIND_ALLOWED_HOSTS')
     entra_tenant_id: str | None = Field(None, alias='ENTRA_TENANT_ID')

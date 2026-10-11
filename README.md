@@ -1,2 +1,0 @@
-# AeroMind.AI
-# AeroMind.AI

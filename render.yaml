@@ -1,44 +1,18 @@
 services:
   - type: web
-    name: aeromind-ai
-    runtime: docker
-    plan: 0.5c-512mb
-    region: frankfurt
-    dockerfilePath: ./Dockerfile
+    name: aeromind-ia
+    env: docker
+    plan: free                 # passer à starter : pas de mise en veille + disque + OpenFOAM
     healthCheckPath: /api/health
-    autoDeployTrigger: off
     envVars:
-      - key: PORT
-        value: 10000
-      - key: AEROMIND_ENV
-        value: production
-      - key: AEROMIND_ALLOWED_ORIGINS
-        value: https://aeromind-ai-eu4b.onrender.com
-      - key: AEROMIND_ALLOWED_HOSTS
-        value: aeromind-ai-eu4b.onrender.com,*.onrender.com,localhost,127.0.0.1
-      - key: AEROMIND_SESSION_SECRET
+      - key: JWT_SECRET
         generateValue: true
-      - key: AEROMIND_SUPERADMIN_EMAILS
-        value: mcgregoralvin14@gmail.com
-      - key: ENTRA_TENANT_ID
+      - key: ADMIN_PASS
         sync: false
-      - key: ENTRA_CLIENT_ID
-        sync: false
-      - key: ENTRA_CLIENT_SECRET
-        sync: false
-      - key: ENTRA_REDIRECT_URI
-        sync: false
-      - key: OIDC_ISSUER
-        sync: false
-      - key: OIDC_CLIENT_ID
-        sync: false
-      - key: OIDC_CLIENT_SECRET
-        sync: false
-      - key: OIDC_REDIRECT_URI
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_API_BASE
-        value: https://api.openai.com/v1
-      - key: OPENAI_MODEL
-        value: gpt-5-mini
+      - key: DATA_DIR
+        value: /var/data
+    # Persistance (plan payé uniquement — sinon données éphémères au redéploiement) :
+    # disk:
+    #   name: aeromind-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

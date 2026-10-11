@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AeroMind.IA — Centre opérationnel</title>
+<style>
+:root{--bg:#0b1220;--card:#111a2c;--line:#1f2b45;--tx:#e2e8f0;--mut:#8ea0bf;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+a{color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:10px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+label{display:block;margin:6px 0 2px;color:var(--mut);font-size:12px}
+input,select,textarea{width:100%;background:#0d1526;border:1px solid var(--line);border-radius:6px;color:var(--tx);padding:7px 9px;font:inherit}
+button{background:#16233c;border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:7px 13px;cursor:pointer;font:inherit}
+button:hover{border-color:var(--acc)}
+button.p{background:var(--acc);color:#062033;border-color:var(--acc);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--mut);font-weight:500}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line)}
+.b-ok{color:var(--ok);border-color:var(--ok)}.b-warn{color:var(--warn);border-color:var(--warn)}
+.b-bad{color:var(--bad);border-color:var(--bad)}.b-mut{color:var(--mut)}
+nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line);background:#0d1526;position:sticky;top:0;align-items:center}
+nav button.on{border-color:var(--acc);color:var(--acc)}
+main{max-width:1240px;margin:0 auto;padding:14px}
+h1,h2,h3{margin:4px 0 10px}h1{font-size:18px}
+.mut{color:var(--mut)}.sm{font-size:12px}
+pre{background:#0a101d;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:60vh;white-space:pre-wrap}
+.bar{height:8px;background:#0d1526;border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%}
+.modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal>div{background:var(--card);border:1px solid var(--line);border-radius:12px;max-width:980px;width:100%;max-height:92vh;overflow:auto;padding:16px}
+</style>
+</head>
+<body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body>
+</html>

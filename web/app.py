@@ -1,7 +1,8 @@
+import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Cookie, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +10,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .copilot import router as copilot_router
-from .oidc import router as oidc_router
+from .oidc import _verified, router as oidc_router
 
 
 def _engine_status():
@@ -59,6 +60,60 @@ async def security_headers(request: Request, call_next):
 @app.get('/api/health')
 def health():
     return {'status': 'ok'}
+
+
+@app.get('/api/platform/config.js', include_in_schema=False)
+def platform_config():
+    """Public, non-secret runtime configuration consumed by the React cockpit."""
+    oidc_enabled = bool(settings.oidc)
+    provider = 'Microsoft Entra ID' if oidc_enabled else ''
+    script = (
+        'window.__MANUS_CONFIG__ = '
+        + __import__('json').dumps({
+            'projectId': 'aeromind-ai',
+            'oauthPortalUrl': '/api/auth/oidc/login',
+            'apiUrl': '/api',
+            'apiBrowserKey': '',
+            'externalOidcEnabled': oidc_enabled,
+            'externalOidcProvider': provider,
+        }, separators=(',', ':'))
+        + ';'
+    )
+    return Response(content=script, media_type='application/javascript', headers={'Cache-Control': 'no-store'})
+
+
+def _current_user(aeromind_session: str | None):
+    if not aeromind_session:
+        return None
+    try:
+        verified = _verified(aeromind_session)
+        raw = base64.urlsafe_b64decode(verified + '=' * (-len(verified) % 4)).decode()
+        subject, email = raw.split('|', 1)
+        return {'id': subject, 'email': email, 'name': email, 'role': 'user'}
+    except Exception:
+        return None
+
+
+@app.get('/api/trpc/{procedure:path}', include_in_schema=False)
+async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(default=None)):
+    """Small compatibility bridge for the legacy React query layer.
+
+    Business operations remain on the Python API; these responses prevent the
+    old client bootstrap queries from failing while the cockpit migrates away
+    from the former Node/tRPC server.
+    """
+    name = procedure.split('?')[0].rstrip('/')
+    if name.endswith('auth.me'):
+        data = _current_user(aeromind_session)
+    elif name.endswith('identity.providers'):
+        data = [{'id': 'entra', 'name': 'Microsoft Entra ID', 'type': 'oidc', 'enabled': bool(settings.oidc)}]
+    elif name.endswith('ai.status'):
+        data = {'available': bool(settings.openai_api_key), 'provider': 'OpenAI-compatible' if settings.openai_api_key else 'local'}
+    elif name.endswith('labBench.status'):
+        data = {'ready': True, 'mode': 'safe-python'}
+    else:
+        data = None
+    return [{'result': {'data': data}}]
 
 
 @app.get('/api/oidc/login', include_in_schema=False)

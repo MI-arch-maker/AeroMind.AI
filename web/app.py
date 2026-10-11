@@ -1,4 +1,6 @@
 import base64
+import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -227,6 +229,34 @@ def safety_check(aeromind_session: str | None = Cookie(default=None)):
         raise HTTPException(401, 'OIDC authentication required')
     result = _engine_status()
     return {'safe': bool(result.get('loaded')), 'hardware_control': False, 'result': result}
+
+
+@app.post('/api/ops/cfd/prepare')
+async def prepare_cfd_case(request: Request, aeromind_session: str | None = Cookie(default=None)):
+    """Prepare an isolated CFD job; never executes a hardware command."""
+    if not _current_user(aeromind_session):
+        raise HTTPException(401, 'OIDC authentication required')
+    payload = await request.json()
+    runtime = shutil.which('foamRun') or shutil.which('simpleFoam') or shutil.which('blockMesh')
+    job_id = f'CFD-{int(time.time())}'
+    if not runtime:
+        return {
+            'job_id': job_id,
+            'status': 'blocked_runtime',
+            'runtime_available': False,
+            'reason': 'Cas préparé en quarantaine ; runtime OpenFOAM absent sur ce serveur.',
+            'hardware_control': False,
+            'payload_received': bool(payload),
+        }
+    return {
+        'job_id': job_id,
+        'status': 'prepared_isolated',
+        'runtime_available': True,
+        'runtime': runtime,
+        'reason': 'Cas préparé pour exécution isolée ; aucune sortie matérielle.',
+        'hardware_control': False,
+        'payload_received': bool(payload),
+    }
 
 
 @app.get('/{path:path}', include_in_schema=False)

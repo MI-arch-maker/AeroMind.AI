@@ -10471,6 +10471,54 @@ function OperationsView({
     setMode("supervised");
     record("Mission approuvée par l’opérateur · mode supervisé engagé");
   };
+  const [authorizationState, setAuthorizationState] = useState<"draft" | "requested" | "approved">("draft");
+  const [uploadState, setUploadState] = useState("Aucun fichier en quarantaine");
+  const [cfdState, setCfdState] = useState("Runtime OpenFOAM non vérifié");
+  const [certificate, setCertificate] = useState<{ id: string; status: string } | null>(null);
+  const requestFlightAuthorization = () => {
+    if (!authenticated || !canLaunchMission(plan)) {
+      record(!authenticated ? "Autorisation refusée · session OIDC requise" : "Autorisation refusée · checklist pré-vol bloquante");
+      return;
+    }
+    setAuthorizationState("requested");
+    record("Dossier d’autorisation transmis · décision humaine requise");
+  };
+  const approveFlightAuthorization = async () => {
+    try {
+      const response = await fetch("/api/auth/oidc/me", { credentials: "include" });
+      const identity = response.ok ? (await response.json() as { role?: string }) : null;
+      if (identity?.role !== "super_admin") {
+        record("Approbation refusée · rôle Super-Admin requis");
+        return;
+      }
+      setAuthorizationState("approved");
+      record("Autorisation approuvée · sortie physique toujours bloquée");
+    } catch {
+      record("Approbation impossible · identité non vérifiable");
+    }
+  };
+  const issueEvidenceCertificate = () => {
+    const campaign = runVirtualTestCampaign(config);
+    if (campaign.counts.fail > 0) {
+      record("Certification refusée · échec dans la campagne de preuve");
+      return;
+    }
+    const id = `AM-CERT-N2-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+    setCertificate({ id, status: "N2 · simulation et revue humaine" });
+    record(`Dossier de preuve généré · ${id}`);
+  };
+  const prepareCfdCase = async () => {
+    setCfdState("Préparation du cas CFD…");
+    try {
+      const response = await fetch("/api/ops/cfd/prepare", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: activeProjectId, configuration: config }) });
+      const result = await response.json() as { status?: string; reason?: string };
+      setCfdState(result.reason || result.status || "Cas CFD préparé");
+      record(`CFD · ${result.status || "résultat inconnu"}`);
+    } catch {
+      setCfdState("Préparation CFD indisponible");
+      record("CFD · erreur de préparation");
+    }
+  };
   return (
     <div className="view-stack">
       <SectionHeading
@@ -10489,6 +10537,15 @@ function OperationsView({
           </span>
         }
       />
+      <section className="panel operations-command-center" aria-label="Centre opérationnel AeroMind">
+        <div className="panel-header"><div><p className="eyebrow">CENTRE OPÉRATIONNEL AEROMIND · ADMINISTRATION HUMAINE</p><h3>Autorisation, preuve et essais</h3></div><span className="calculated-badge">SORTIES PHYSIQUES BLOQUÉES</span></div>
+        <div className="operations-command-grid">
+          <div><strong>Autorisation de vol</strong><span className={`ops-state ops-state-${authorizationState}`}>{authorizationState === "draft" ? "BROUILLON" : authorizationState === "requested" ? "EN ATTENTE SUPER-ADMIN" : "APPROUVÉE · SIMULATION"}</span><small>Le dossier est traçable ; aucune approbation ne déclenche un aéronef réel.</small><div className="operation-actions"><button className="secondary-button" onClick={requestFlightAuthorization} disabled={authorizationState !== "draft"}>Demander l’autorisation</button><button className="primary-button" onClick={() => void approveFlightAuthorization()} disabled={authorizationState !== "requested"}>Approuver (Super-Admin)</button></div></div>
+          <div><strong>Certification AeroMind.IA</strong><span className="ops-state">{certificate?.status || "NON ÉMISE"}</span><small>Certificat limité au niveau effectivement testé, sans déclaration réglementaire implicite.</small><button className="secondary-button" onClick={issueEvidenceCertificate}>Générer le dossier de preuve</button>{certificate && <code className="ops-certificate">{certificate.id}</code>}</div>
+          <div><strong>CFD OpenFOAM isolée</strong><span className="ops-state">{cfdState}</span><small>Le cas est préparé séparément ; aucun résultat n’est présenté comme mesuré sans runtime disponible.</small><button className="secondary-button" onClick={() => void prepareCfdCase()}>Préparer le cas CFD</button></div>
+          <div><strong>Téléversement en quarantaine</strong><span className="ops-state">{uploadState}</span><small>Hash et analyse avant tout usage. Aucun envoi vers un contrôleur ou un aéronef.</small><label className="secondary-button ops-upload"><Upload size={14} /> Déposer un artefact<input type="file" hidden onChange={event => { const file = event.target.files?.[0]; if (file) { setUploadState(`${file.name} · quarantaine · analyse requise`); record(`Artefact placé en quarantaine · ${file.name}`); } }} /></label></div>
+        </div>
+      </section>
       <div className="operations-grid">
         <section className="panel operation-panel">
           <div className="panel-header">

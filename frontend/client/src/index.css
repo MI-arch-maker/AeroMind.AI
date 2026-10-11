@@ -14134,6 +14134,34 @@ button:disabled {
   background: rgba(117, 226, 220, 0.08);
   outline: 2px solid rgba(117, 226, 220, 0.12);
 }
+.operations-command-center {
+  border-color: rgba(117, 226, 220, 0.24);
+  background: linear-gradient(145deg, rgba(12, 34, 40, 0.98), rgba(7, 17, 23, 0.98));
+}
+.operations-command-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.operations-command-grid > div {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 170px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(4, 14, 18, 0.45);
+}
+.operations-command-grid strong { font-size: 11px; }
+.operations-command-grid small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.ops-state { color: var(--cyan); font-size: 9px; letter-spacing: .08em; }
+.ops-state-requested { color: var(--amber); }
+.ops-state-approved { color: var(--green); }
+.ops-certificate { color: var(--green); font-size: 9px; overflow-wrap: anywhere; }
+.ops-upload { cursor: pointer; }
+@media (max-width: 1100px) { .operations-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .operations-command-grid { grid-template-columns: 1fr; } }
 .workspace-window-bar {
   border-color: rgba(117, 226, 220, 0.26);
   background: linear-gradient(

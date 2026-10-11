@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     openai_api_base: str = Field('https://api.openai.com/v1', alias='OPENAI_API_BASE')
     openai_model: str = Field('gpt-5-mini', alias='OPENAI_MODEL')
 
+    @field_validator('openai_api_base', mode='before')
+    @classmethod
+    def normalize_openai_base(cls, value: str) -> str:
+        value = str(value or '').strip().strip('"\'')
+        if value and not value.startswith(('http://', 'https://')):
+            value = f'https://{value}'
+        return value.rstrip('/') or 'https://api.openai.com/v1'
+
     @field_validator('session_secret')
     @classmethod
     def strong_secret(cls, value: str) -> str:
@@ -56,7 +64,10 @@ class Settings(BaseSettings):
     @property
     def oidc(self) -> dict[str, str] | None:
         if self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret and self.oidc_redirect_uri:
-            return {'issuer': self.oidc_issuer.rstrip('/'), 'client_id': self.oidc_client_id, 'client_secret': self.oidc_client_secret, 'redirect_uri': self.oidc_redirect_uri}
+            issuer = self.oidc_issuer.strip().strip('"\'')
+            if not issuer.startswith(('http://', 'https://')):
+                issuer = f'https://{issuer}'
+            return {'issuer': issuer.rstrip('/'), 'client_id': self.oidc_client_id, 'client_secret': self.oidc_client_secret, 'redirect_uri': self.oidc_redirect_uri}
         if self.entra_tenant_id and self.entra_client_id and self.entra_client_secret and self.entra_redirect_uri:
             return {'issuer': f'https://login.microsoftonline.com/{self.entra_tenant_id}/v2.0', 'client_id': self.entra_client_id, 'client_secret': self.entra_client_secret, 'redirect_uri': self.entra_redirect_uri}
         return None

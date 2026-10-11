@@ -55,6 +55,19 @@ def status():
     return {'configured': bool(cfg), 'provider': 'oidc' if get_settings().oidc_issuer else ('entra' if cfg else None)}
 
 
+@router.get('/me')
+def me(aeromind_session: str | None = Cookie(default=None)):
+    if not aeromind_session:
+        raise HTTPException(401, 'No authenticated session')
+    try:
+        verified = _verified(aeromind_session)
+        raw = base64.urlsafe_b64decode(verified + '=' * (-len(verified) % 4)).decode()
+        subject, email = raw.split('|', 1)
+    except (ValueError, IndexError, UnicodeDecodeError):
+        raise HTTPException(401, 'Invalid session')
+    return {'authenticated': True, 'subject': subject, 'email': email}
+
+
 @router.get('/login')
 async def login():
     cfg = _settings()

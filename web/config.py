@@ -1,9 +1,24 @@
 from functools import lru_cache
+import os
 from typing import Literal
 from urllib.parse import urlparse
+from pydantic import BaseModel, Field, field_validator
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ModuleNotFoundError:  # Compatibilité avec une image Render ancienne/incomplète.
+    class SettingsConfigDict(dict):
+        pass
+
+    class BaseSettings(BaseModel):
+        def __init__(self, **values):
+            for field_name, field in self.__class__.model_fields.items():
+                alias = field.alias or field_name
+                if field_name not in values and alias in os.environ:
+                    values[field_name] = os.environ[alias]
+            super().__init__(**values)
+
+
 
 
 class Settings(BaseSettings):

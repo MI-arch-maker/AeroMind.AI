@@ -19,6 +19,7 @@ RUN useradd --create-home --uid 10001 appuser
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -c "import pydantic_settings; print('pydantic-settings available')"
 COPY . .
 COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 

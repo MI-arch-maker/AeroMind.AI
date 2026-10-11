@@ -7,7 +7,13 @@ name = "aeromind-ai"
 version = "2.0.0"
 description = "AeroMind AI engineering and simulation API"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic-settings>=2.6,<3",
+  "httpx>=0.27,<1",
+  "PyJWT[crypto]>=2.9,<3",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

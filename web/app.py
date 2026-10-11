@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
@@ -53,6 +53,21 @@ async def security_headers(request: Request, call_next):
 @app.get('/api/health')
 def health():
     return {'status': 'ok'}
+
+
+@app.get('/', response_class=HTMLResponse)
+def home():
+    return """<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AeroMind AI</title></head><body style="font-family:system-ui;max-width:760px;margin:4rem auto;padding:0 1.5rem">
+<h1>AeroMind AI</h1><p>API d’ingénierie et de simulation opérationnelle.</p>
+<p><a href="/api/health">Health</a> · <a href="/api/capabilities">Capabilities</a> · <a href="/api/auth/oidc/login">Connexion Entra/OIDC</a></p>
+</body></html>"""
+
+
+@app.get('/favicon.ico', include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 @app.get('/api/ready')

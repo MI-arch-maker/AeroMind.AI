@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
@@ -34,6 +35,11 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.hosts)
 if settings.origins:
     app.add_middleware(CORSMiddleware, allow_origins=settings.origins, allow_credentials=True, allow_methods=['GET', 'POST'], allow_headers=['Authorization', 'Content-Type', 'X-Request-ID'])
 
+FRONTEND_DIR = Path('frontend/dist')
+FRONTEND_INDEX = FRONTEND_DIR / 'index.html'
+if FRONTEND_DIR.is_dir():
+    app.mount('/assets', StaticFiles(directory=FRONTEND_DIR / 'assets'), name='frontend-assets')
+
 app.include_router(oidc_router)
 app.include_router(copilot_router)
 
@@ -55,8 +61,15 @@ def health():
     return {'status': 'ok'}
 
 
+@app.get('/api/oidc/login', include_in_schema=False)
+def legacy_oidc_login():
+    return RedirectResponse('/api/auth/oidc/login', status_code=307)
+
+
 @app.get('/', response_class=HTMLResponse)
 def home():
+    if FRONTEND_INDEX.is_file():
+        return FileResponse(FRONTEND_INDEX)
     return """<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AeroMind AI</title></head><body style="font-family:system-ui;max-width:760px;margin:4rem auto;padding:0 1.5rem">
@@ -91,6 +104,18 @@ def system_status():
 def safety_check():
     result = _engine_status()
     return {'safe': bool(result.get('loaded')), 'hardware_control': False, 'result': result}
+
+
+@app.get('/{path:path}', include_in_schema=False)
+def frontend_routes(path: str):
+    if path.startswith('api/'):
+        raise HTTPException(404, 'Not found')
+    requested = FRONTEND_DIR / path
+    if requested.is_file():
+        return FileResponse(requested)
+    if FRONTEND_INDEX.is_file():
+        return FileResponse(FRONTEND_INDEX)
+    raise HTTPException(404, 'Frontend not built')
 
 
 @app.exception_handler(Exception)

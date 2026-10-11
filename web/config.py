@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,7 +40,18 @@ class Settings(BaseSettings):
 
     @property
     def hosts(self) -> list[str]:
-        return [x.strip() for x in self.allowed_hosts.split(',') if x.strip()]
+        # Render fournit un Host sans schéma. Accepter aussi par tolérance
+        # une valeur saisie comme URL, sans jamais laisser une variable vide
+        # désactiver involontairement tous les hôtes autorisés.
+        raw = [x.strip() for x in self.allowed_hosts.split(',') if x.strip()]
+        hosts: list[str] = []
+        for value in raw:
+            candidate = value if '://' in value else f'http://{value}'
+            parsed = urlparse(candidate)
+            host = parsed.netloc.split('@')[-1].split(':')[0].lower().rstrip('.')
+            if host:
+                hosts.append(host)
+        return hosts or ['*.onrender.com', 'localhost', '127.0.0.1']
 
     @property
     def oidc(self) -> dict[str, str] | None:

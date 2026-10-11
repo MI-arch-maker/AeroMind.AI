@@ -13,9 +13,9 @@ services:
       - key: AEROMIND_ENV
         value: production
       - key: AEROMIND_ALLOWED_ORIGINS
-        sync: false
+        value: https://aeromind-ai-eu4b.onrender.com
       - key: AEROMIND_ALLOWED_HOSTS
-        sync: false
+        value: aeromind-ai-eu4b.onrender.com,*.onrender.com,localhost,127.0.0.1
       - key: AEROMIND_SESSION_SECRET
         generateValue: true
       - key: ENTRA_TENANT_ID

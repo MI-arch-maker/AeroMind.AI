@@ -13,9 +13,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN mkdir -p /app/data /app/logs && chown -R appuser:appuser /app
+RUN chmod 0555 /app/entrypoint.sh
 USER appuser
 
 ENV PORT=10000
 EXPOSE 10000
 
-CMD ["sh", "-c", "exec uvicorn web.app:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers --forwarded-allow-ips='*']
+CMD ["/app/entrypoint.sh"]

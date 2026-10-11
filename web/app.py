@@ -106,11 +106,19 @@ async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(defa
     if name.endswith('auth.me'):
         data = _current_user(aeromind_session)
     elif name.endswith('identity.providers'):
-        data = [{'id': 'entra', 'name': 'Microsoft Entra ID', 'type': 'oidc', 'enabled': bool(settings.oidc)}]
+        data = [{'id': 'entra', 'label': 'Microsoft Entra ID', 'domains': 'Microsoft 365 / Entra', 'note': 'Connexion OIDC sécurisée', 'configured': bool(settings.oidc)}]
     elif name.endswith('ai.status'):
         data = {'available': bool(settings.openai_api_key), 'provider': 'OpenAI-compatible' if settings.openai_api_key else 'local'}
     elif name.endswith('labBench.status'):
         data = {'ready': True, 'mode': 'safe-python'}
+    elif any(name.endswith(suffix) for suffix in (
+        'projects.list', 'simulationRuns.list', 'designVersions.list',
+        'reports.list', 'superAdmin.accounts', 'superAdmin.activity',
+        'auditEvents.list',
+    )):
+        data = []
+    elif name.endswith('labBench.registry'):
+        data = {'devices': [], 'drivers': [], 'updatedAt': None}
     else:
         data = None
     # The legacy React client uses the SuperJSON transformer. Its wire format

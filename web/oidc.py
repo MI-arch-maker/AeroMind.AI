@@ -82,7 +82,7 @@ async def login():
     token = _signed(_b64(payload.encode()))
     query = urlencode({'client_id': cfg['client_id'], 'redirect_uri': cfg['redirect_uri'], 'response_type': 'code', 'scope': 'openid profile email', 'state': state, 'nonce': nonce, 'code_challenge': challenge, 'code_challenge_method': 'S256'})
     response = RedirectResponse(f"{discovery['authorization_endpoint']}?{query}")
-    response.set_cookie('aeromind_oidc_state', token, httponly=True, secure=True, samesite='lax', max_age=600, path='/')
+    response.set_cookie('aeromind_oidc_state', token, httponly=True, secure=True, samesite='none', max_age=600, path='/')
     return response
 
 
@@ -111,5 +111,5 @@ async def callback(code: str, state: str, aeromind_oidc_state: str | None = Cook
     response = RedirectResponse('/')
     response.delete_cookie('aeromind_oidc_state', path='/')
     session = _signed(_b64(f"{claims.get('sub')}|{claims.get('email') or claims.get('preferred_username')}".encode()))
-    response.set_cookie('aeromind_session', session, httponly=True, secure=True, samesite='lax', max_age=28800, path='/')
+    response.set_cookie('aeromind_session', session, httponly=True, secure=True, samesite='none', max_age=28800, path='/')
     return response

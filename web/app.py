@@ -113,7 +113,11 @@ async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(defa
         data = {'ready': True, 'mode': 'safe-python'}
     else:
         data = None
-    return [{'result': {'data': data}}]
+    response = JSONResponse([{'result': {'data': data}}])
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Vary'] = 'Cookie'
+    return response
 
 
 @app.get('/api/oidc/login', include_in_schema=False)

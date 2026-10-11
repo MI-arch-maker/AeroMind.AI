@@ -1,0 +1,74 @@
+// config/default_config.json
+{
+  "application": {
+    "name": "AeroMind AI",
+    "version": "2.0.0",
+    "mode": "local",
+    "data_directory": "./data",
+    "log_directory": "./logs",
+    "offline_mode": true
+  },
+  
+  "safety": {
+    "emergency_stop_enabled": true,
+    "watchdog_timeout_ms": 500,
+    "max_emergency_stop_reset_attempts": 3,
+    "require_acknowledgment": true,
+    "independent_hardware_safety": true
+  },
+  
+  "control": {
+    "default_mode": "simulation",
+    "max_control_loop_rate_hz": 1000,
+    "default_pid_limits": {
+      "output_min": -100.0,
+      "output_max": 100.0,
+      "integral_limit": 1000.0
+    }
+  },
+  
+  "security": {
+    "authentication_required": true,
+    "session_timeout_minutes": 60,
+    "max_failed_login_attempts": 5,
+    "lockout_duration_minutes": 30,
+    "password_min_length": 12,
+    "audit_log_enabled": true,
+    "audit_log_encrypted": true
+  },
+  
+  "simulation": {
+    "default_dt": 0.001,
+    "max_simulation_duration_s": 3600,
+    "calibration_required_for_validation": true,
+    "uncertainty_reporting": true
+  },
+  
+  "hardware": {
+    "connection_timeout_s": 10.0,
+    "communication_retry_count": 3,
+    "auto_reconnect": true,
+    "restricted_commands": ["emergency_stop", "full_power", "firmware_update"]
+  },
+  
+  "testing": {
+    "evidence_retention_days": 365,
+    "require_operator_signature": true,
+    "blocking_test_failure_stops_execution": true
+  },
+  
+  "maintenance": {
+    "predictive_enabled": true,
+    "drift_threshold_sigma": 3.0,
+    "wear_warning_threshold_percent": 70,
+    "wear_critical_threshold_percent": 90
+  },
+  
+  "ai_copilot": {
+    "enabled": true,
+    "require_human_validation": true,
+    "never_modify_critical_parameters": true,
+    "report_uncertainty": true,
+    "allow_data_insufficient_response": true
+  }
+}

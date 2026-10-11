@@ -6,7 +6,9 @@ Orchestration de tous les modules selon l'architecture 5 couches.
 
 import sys
 import json
+import os
 from datetime import datetime, timezone
+from typing import Dict
 
 # Import des modules
 from core.identity import DeviceIdentity, ProjectIdentity, IdentityType
@@ -228,14 +230,17 @@ class AeroMindAI:
     
     def create_default_user(self):
         """Crée un utilisateur administrateur par défaut."""
+        password = os.getenv("AEROMIND_BOOTSTRAP_PASSWORD")
+        if not password or len(password) < 12:
+            print("⚠️  Aucun utilisateur bootstrap créé : définissez AEROMIND_BOOTSTRAP_PASSWORD (12 caractères minimum)")
+            return None
         self.auth_manager.create_user(
             username="admin",
-            password="changeme_immediately",
+            password=password,
             role=UserRole.ADMINISTRATOR,
             full_name="Administrateur"
         )
-        print("⚠️  Utilisateur 'admin' créé avec mot de passe par défaut")
-        print("   → Changez-le immédiatement après le premier démarrage")
+        print("✓ Utilisateur bootstrap créé avec un secret fourni par l’environnement")
 
 
 def main():

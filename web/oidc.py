@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 import httpx
 import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import get_settings
 
@@ -49,6 +49,11 @@ def _settings():
     return cfg
 
 
+def _cookie_security() -> dict[str, object]:
+    secure = get_settings().environment == 'production'
+    return {'httponly': True, 'secure': secure, 'samesite': 'lax', 'path': '/'}
+
+
 @router.get('/status')
 def status():
     cfg = get_settings().oidc
@@ -65,7 +70,21 @@ def me(aeromind_session: str | None = Cookie(default=None)):
         subject, email = raw.split('|', 1)
     except (ValueError, IndexError, UnicodeDecodeError):
         raise HTTPException(401, 'Invalid session')
-    return {'authenticated': True, 'subject': subject, 'email': email}
+    return {
+        'authenticated': True,
+        'subject': subject,
+        'email': email,
+        'name': email,
+        'role': 'super_admin' if get_settings().is_superadmin_email(email) else 'user',
+    }
+
+
+@router.api_route('/logout', methods=['GET', 'POST'])
+def logout():
+    response = JSONResponse({'logged_out': True})
+    response.delete_cookie('aeromind_session', path='/')
+    response.delete_cookie('aeromind_oidc_state', path='/')
+    return response
 
 
 @router.get('/login')
@@ -82,7 +101,7 @@ async def login():
     token = _signed(_b64(payload.encode()))
     query = urlencode({'client_id': cfg['client_id'], 'redirect_uri': cfg['redirect_uri'], 'response_type': 'code', 'scope': 'openid profile email', 'state': state, 'nonce': nonce, 'code_challenge': challenge, 'code_challenge_method': 'S256'})
     response = RedirectResponse(f"{discovery['authorization_endpoint']}?{query}")
-    response.set_cookie('aeromind_oidc_state', token, httponly=True, secure=True, samesite='none', max_age=600, path='/')
+    response.set_cookie('aeromind_oidc_state', token, max_age=600, **_cookie_security())
     return response
 
 
@@ -111,5 +130,5 @@ async def callback(code: str, state: str, aeromind_oidc_state: str | None = Cook
     response = RedirectResponse('/')
     response.delete_cookie('aeromind_oidc_state', path='/')
     session = _signed(_b64(f"{claims.get('sub')}|{claims.get('email') or claims.get('preferred_username')}".encode()))
-    response.set_cookie('aeromind_session', session, httponly=True, secure=True, samesite='none', max_age=28800, path='/')
+    response.set_cookie('aeromind_session', session, max_age=28800, **_cookie_security())
     return response

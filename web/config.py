@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     environment: Literal['development', 'staging', 'production'] = Field('production', alias='AEROMIND_ENV')
     port: int = Field(10000, alias='PORT')
     session_secret: str = Field(..., alias='AEROMIND_SESSION_SECRET')
+    superadmin_emails: str = Field('', alias='AEROMIND_SUPERADMIN_EMAILS')
     allowed_origins: str = Field('', alias='AEROMIND_ALLOWED_ORIGINS')
     allowed_hosts: str = Field('*.onrender.com,localhost,127.0.0.1', alias='AEROMIND_ALLOWED_HOSTS')
     entra_tenant_id: str | None = Field(None, alias='ENTRA_TENANT_ID')
@@ -60,6 +61,13 @@ class Settings(BaseSettings):
             if host:
                 hosts.append(host)
         return hosts or ['*.onrender.com', 'localhost', '127.0.0.1']
+
+    @property
+    def superadmin_email_set(self) -> set[str]:
+        return {email.strip().casefold() for email in self.superadmin_emails.split(',') if email.strip()}
+
+    def is_superadmin_email(self, email: str | None) -> bool:
+        return bool(email and email.strip().casefold() in self.superadmin_email_set)
 
     @property
     def oidc(self) -> dict[str, str] | None:

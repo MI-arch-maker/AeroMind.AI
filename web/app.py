@@ -89,12 +89,25 @@ def _current_user(aeromind_session: str | None):
         verified = _verified(aeromind_session)
         raw = base64.urlsafe_b64decode(verified + '=' * (-len(verified) % 4)).decode()
         subject, email = raw.split('|', 1)
-        return {'id': subject, 'email': email, 'name': email, 'role': 'user'}
+        return {
+            'id': subject,
+            'email': email,
+            'name': email,
+            'role': 'super_admin' if settings.is_superadmin_email(email) else 'user',
+        }
     except Exception:
         return None
 
 
-@app.get('/api/trpc/{procedure:path}', include_in_schema=False)
+def _trpc_error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={'error': {'json': {'code': code, 'message': message}}},
+        headers={'Cache-Control': 'no-store', 'Vary': 'Cookie'},
+    )
+
+
+@app.api_route('/api/trpc/{procedure:path}', methods=['GET', 'POST'], include_in_schema=False)
 async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(default=None)):
     """Small compatibility bridge for the legacy React query layer.
 
@@ -102,19 +115,31 @@ async def trpc_compat(procedure: str, aeromind_session: str | None = Cookie(defa
     old client bootstrap queries from failing while the cockpit migrates away
     from the former Node/tRPC server.
     """
-    name = procedure.split('?')[0].rstrip('/')
+    name = procedure.split('?')[0].rstrip('/').replace('/', '.')
+    current_user = _current_user(aeromind_session)
+    if any(name.endswith(suffix) for suffix in (
+        'superAdmin.accounts', 'superAdmin.activity',
+        'superAdmin.createAccount', 'superAdmin.updateAccount',
+    )):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        if current_user['role'] != 'super_admin':
+            return _trpc_error(403, 'FORBIDDEN', 'Super-Admin permission required')
     if name.endswith('auth.me'):
-        data = _current_user(aeromind_session)
+        data = current_user
+    elif name.endswith('auth.logout'):
+        data = {'logged_out': True}
     elif name.endswith('identity.providers'):
         data = [{'id': 'entra', 'label': 'Microsoft Entra ID', 'domains': 'Microsoft 365 / Entra', 'note': 'Connexion OIDC sécurisée', 'configured': bool(settings.oidc)}]
     elif name.endswith('ai.status'):
         data = {'available': bool(settings.openai_api_key), 'provider': 'OpenAI-compatible' if settings.openai_api_key else 'local'}
     elif name.endswith('labBench.status'):
         data = {'ready': True, 'mode': 'safe-python'}
+    elif name.endswith('superAdmin.activity'):
+        data = {'projects': [], 'runs': [], 'events': [], 'adminEvents': [], 'totals': {}}
     elif any(name.endswith(suffix) for suffix in (
         'projects.list', 'simulationRuns.list', 'designVersions.list',
-        'reports.list', 'superAdmin.accounts', 'superAdmin.activity',
-        'auditEvents.list',
+        'reports.list', 'superAdmin.accounts', 'auditEvents.list',
     )):
         data = []
     elif name.endswith('labBench.registry'):
@@ -166,12 +191,16 @@ def capabilities():
 
 
 @app.get('/api/system/status')
-def system_status():
+def system_status(aeromind_session: str | None = Cookie(default=None)):
+    if not _current_user(aeromind_session):
+        raise HTTPException(401, 'OIDC authentication required')
     return _engine_status()
 
 
 @app.get('/api/safety/check')
-def safety_check():
+def safety_check(aeromind_session: str | None = Cookie(default=None)):
+    if not _current_user(aeromind_session):
+        raise HTTPException(401, 'OIDC authentication required')
     result = _engine_status()
     return {'safe': bool(result.get('loaded')), 'hardware_control': False, 'result': result}
 

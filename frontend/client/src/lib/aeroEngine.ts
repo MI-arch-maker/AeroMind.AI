@@ -109,6 +109,9 @@ export type InstalledMaterial = {
   massSourceUrl?: string;
   catalogSource?: "manufacturer" | "concept" | "user";
   manufacturerDataStatus?: "verified" | "partial" | "estimate";
+  physicalStatus?: "not-verified" | "received" | "inspected" | "rejected";
+  physicalId?: string;
+  assemblyNotes?: string;
   dimensions?: string;
   electrical?: string;
   interfaces?: string;

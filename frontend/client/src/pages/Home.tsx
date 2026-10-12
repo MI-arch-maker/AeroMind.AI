@@ -264,6 +264,7 @@ type ViewId =
   | "report"
   | "copilot"
   | "operations"
+  | "materials"
   | "aero-center"
   | "design-studio";
 type ProjectState = {
@@ -370,6 +371,12 @@ const navItems: Array<{
     label: "Opérations sûres",
     meta: "human",
     icon: ShieldCheck,
+  },
+  {
+    id: "materials",
+    label: "Matériaux & assemblages",
+    meta: "BOM",
+    icon: Layers3,
   },
   {
     id: "aero-center",
@@ -3809,6 +3816,31 @@ function ConceptView({
               sa géométrie réelle dans le Concept 3D.
             </p>
           </div>
+        )}
+      </section>
+      <section className="panel physical-construction-panel" aria-label="Construction matérielle du studio">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">STUDIO / CONSTRUCTION MATÉRIELLE</p>
+            <h3>Pièces physiques liées au modèle</h3>
+          </div>
+          <span className="calculated-badge">{installedMaterials.length} composant(s) · {installedMaterialMass.toFixed(2)} kg</span>
+        </div>
+        <p className="section-description">
+          La vue SVG reste une couche de visualisation. La source de construction est désormais la nomenclature matérielle ci-dessous : chaque élément doit être relié à une référence, une masse et un identifiant physique avant validation.
+        </p>
+        {installedMaterials.length ? (
+          <div className="physical-material-grid">
+            {installedMaterials.map(item => (
+              <div className="physical-material-card" key={item.id}>
+                <div><strong>{item.label}</strong><span className={`material-status status-${item.manufacturerDataStatus ?? "estimate"}`}>{item.manufacturerDataStatus === "verified" ? "SOURCE VÉRIFIÉE" : item.manufacturerDataStatus === "partial" ? "SOURCE PARTIELLE" : "À QUALIFIER"}</span></div>
+                <small>{item.manufacturer ?? "Fabricant non renseigné"} · {item.partNumber ?? "Référence à attribuer"}</small>
+                <small>ID physique : {item.physicalId ?? "à attribuer à la réception"} · {item.massKg.toFixed(3)} kg × {item.quantity ?? 1}</small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="inspector-note"><Info size={15} /> Aucune pièce matérielle n’est liée. Ajoutez des composants depuis l’onglet Matériaux & assemblages avant d’utiliser ce studio comme nomenclature.</div>
         )}
       </section>
       <EngineeringGuide
@@ -8608,9 +8640,14 @@ function MissionOperationsView({
       video.removeEventListener("error", onVideoError);
       hls?.destroy();
       if (hlsRef.current === hls) hlsRef.current = null;
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
+      // Le changement vers la caméra locale ou le flux synthétique peut
+      // intervenir avant l’exécution du cleanup React. Ne pas détruire le
+      // nouveau MediaStream installé entre-temps.
+      if (!video.srcObject) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
     };
   }, [activeStreamUrl]);
 
@@ -8744,7 +8781,10 @@ function MissionOperationsView({
     const stream = canvas.captureStream(24);
     cameraRef.current = stream;
     video.srcObject = stream;
-    void video.play();
+    void video.play().catch(() => {
+      setVideoState("error");
+      setVideoError("La lecture automatique de la simulation a été bloquée. Cliquez sur Lecture dans le lecteur vidéo.");
+    });
     testFeedCleanupRef.current = () => window.clearInterval(timer);
     setTestFeedActive(true);
     setCameraActive(false);
@@ -10359,6 +10399,88 @@ function IdentityConnections() {
         </div>
       )}
     </section>
+  );
+}
+
+function MaterialsAssemblyView({
+  config,
+  setConfig,
+}: {
+  config: ConceptConfig;
+  setConfig: (config: ConceptConfig) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<DronePartCategory | "all">("all");
+  const [source, setSource] = useState<"all" | "manufacturer" | "concept" | "user">("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [custom, setCustom] = useState({ label: "", manufacturer: "", partNumber: "", massKg: "", physicalId: "" });
+  const catalog = useMemo(
+    () => [...manufacturerPartCatalog, ...dronePartCatalog.filter(item => !manufacturerPartCatalog.some(ref => ref.id === item.id))],
+    []
+  );
+  const installed = config.installedMaterials ?? [];
+  const allItems = [...catalog, ...installed.filter(item => item.catalogSource === "user")];
+  const filtered = allItems.filter(item => {
+    const haystack = `${item.label} ${item.use} ${item.manufacturer ?? ""} ${item.partNumber ?? ""}`.toLowerCase();
+    return (category === "all" || item.category === category) &&
+      (source === "all" || (item.catalogSource ?? "concept") === source) &&
+      haystack.includes(query.toLowerCase());
+  });
+  const selected = allItems.find(item => item.id === selectedId) ?? filtered[0] ?? null;
+  const updateInstalled = (next: InstalledMaterial[]) =>
+    setConfig({ ...config, installedMaterials: next, constructionMassKg: installedPartsMassKg(next) });
+  const addToAssembly = (item: DronePartDefinition) => {
+    const existing = installed.find(entry => entry.id === item.id);
+    if (existing) {
+      updateInstalled(installed.map(entry => entry.id === item.id ? { ...entry, quantity: (entry.quantity ?? 1) + 1 } : entry));
+      return;
+    }
+    updateInstalled([...installed, { ...item, quantity: item.quantity ?? 1 }]);
+  };
+  const removeFromAssembly = (id: string) => updateInstalled(installed.filter(item => item.id !== id));
+  const addCustomPart = () => {
+    const label = custom.label.trim();
+    const massKg = Number(custom.massKg);
+    if (!label || !Number.isFinite(massKg) || massKg < 0) return;
+    const item: DronePartDefinition = {
+      id: `user-part-${Date.now()}`,
+      label,
+      category: "hardware",
+      use: "Composant personnalisé — identification physique à compléter",
+      massKg,
+      geometry: "mount",
+      manufacturer: custom.manufacturer.trim() || "Non renseigné",
+      partNumber: custom.partNumber.trim() || "Référence interne à attribuer",
+      catalogSource: "user",
+      manufacturerDataStatus: "estimate",
+      physicalStatus: "not-verified",
+      physicalId: custom.physicalId.trim() || "Identifiant physique à attribuer",
+      interfaces: "À documenter sur la pièce réelle et sa fiche de montage",
+    };
+    updateInstalled([...installed, item]);
+    setSelectedId(item.id);
+    setCustom({ label: "", manufacturer: "", partNumber: "", massKg: "", physicalId: "" });
+  };
+  return (
+    <div className="view-stack materials-assembly-view">
+      <SectionHeading eyebrow="BOM / IDENTIFICATION MATÉRIELLE" title="Matériaux & assemblages personnalisés" description="Catalogue des composants, fiches de traçabilité et nomenclature du projet. Les références physiques doivent être vérifiées sur pièce et par leur fabricant avant toute décision d’ingénierie." />
+      <div className="materials-summary-grid">
+        <div><strong>{catalog.length}</strong><span>références catalogue</span></div>
+        <div><strong>{installed.length}</strong><span>éléments dans l’assemblage</span></div>
+        <div><strong>{installedPartsMassKg(installed).toFixed(2)} kg</strong><span>masse installée calculée</span></div>
+        <div><strong>{manufacturerPartCatalog.length}</strong><span>références fabricant sourcées</span></div>
+      </div>
+      <section className="panel materials-toolbar">
+        <input aria-label="Rechercher un composant" placeholder="Rechercher moteur, hélice, capteur, référence…" value={query} onChange={event => setQuery(event.target.value)} />
+        <select aria-label="Filtrer par catégorie" value={category} onChange={event => setCategory(event.target.value as DronePartCategory | "all")}><option value="all">Toutes les catégories</option>{dronePartCategories.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+        <select aria-label="Filtrer par source" value={source} onChange={event => setSource(event.target.value as typeof source)}><option value="all">Toutes les sources</option><option value="manufacturer">Fabricant</option><option value="concept">Concept / générique</option><option value="user">Personnalisé</option></select>
+      </section>
+      <div className="materials-layout">
+        <section className="panel material-catalog-panel"><div className="panel-header"><div><p className="eyebrow">CATALOGUE UNIFIÉ</p><h3>Composants disponibles</h3></div><span className="calculated-badge">{filtered.length} résultat(s)</span></div><div className="material-catalog-list">{filtered.map(item => <button key={item.id} className={`material-catalog-row ${selected?.id === item.id ? "is-selected" : ""}`} onClick={() => setSelectedId(item.id)}><span><strong>{item.label}</strong><small>{item.category ? dronePartCategories.find(categoryItem => categoryItem.id === item.category)?.label : "Composant"} · {item.manufacturer ?? "Concept AeroMind"}</small></span><span><b>{item.massKg.toFixed(3)} kg</b><small>{item.catalogSource === "manufacturer" ? "FABRICANT" : item.catalogSource === "user" ? "PERSONNALISÉ" : "CONCEPT"}</small></span></button>)}</div></section>
+        <aside className="panel material-detail-panel">{selected ? <><div className="panel-header"><div><p className="eyebrow">FICHE D’IDENTIFICATION</p><h3>{selected.label}</h3></div><span className={`material-status status-${selected.manufacturerDataStatus ?? "estimate"}`}>{selected.manufacturerDataStatus === "verified" ? "SOURCE VÉRIFIÉE" : selected.manufacturerDataStatus === "partial" ? "SOURCE PARTIELLE" : "À QUALIFIER"}</span></div><dl className="material-detail-list"><div><dt>Fabricant</dt><dd>{selected.manufacturer ?? "Non renseigné"}</dd></div><div><dt>Référence / SKU</dt><dd>{selected.partNumber ?? "Non renseignée"}</dd></div><div><dt>Identifiant physique</dt><dd>{selected.physicalId ?? "À attribuer à la réception"} · {selected.physicalStatus === "inspected" ? "inspecté" : selected.physicalStatus === "received" ? "réceptionné" : "non vérifié"}</dd></div><div><dt>Masse unitaire</dt><dd>{selected.massKg.toFixed(3)} kg · quantité {selected.quantity ?? 1}</dd></div><div><dt>Dimensions</dt><dd>{selected.dimensions ?? "À relever sur pièce ou dans la fiche technique"}</dd></div><div><dt>Interfaces d’assemblage</dt><dd>{selected.interfaces ?? "À documenter : perçages, connectique, enveloppe et fixations"}</dd></div><div><dt>Électricité / énergie</dt><dd>{selected.electrical ?? "Non renseigné — validation fabricant nécessaire"}</dd></div></dl><div className="material-detail-actions"><button className="primary-button" onClick={() => addToAssembly(selected)}>Ajouter à la nomenclature</button>{installed.some(item => item.id === selected.id) && <button className="secondary-button" onClick={() => removeFromAssembly(selected.id)}>Retirer de l’assemblage</button>}{selected.productUrl && <a className="secondary-button" href={selected.productUrl} target="_blank" rel="noreferrer">Ouvrir la source fabricant</a>}</div><p className="inspector-note"><Info size={15} /> Une référence catalogue ne prouve pas la présence physique. Pour passer au statut matériel identifiable, renseignez l’identifiant de pièce, la fiche fabricant, la photo ou le relevé, puis faites valider la réception.</p></> : <p className="section-description">Aucun composant ne correspond à la recherche.</p>}</aside>
+      </div>
+      <div className="materials-layout materials-bottom-layout"><section className="panel"><div className="panel-header"><div><p className="eyebrow">NOUVELLE RÉFÉRENCE</p><h3>Ajouter un composant personnalisé</h3></div><Plus size={16} className="muted-icon" /></div><div className="materials-custom-form"><input placeholder="Nom du composant" value={custom.label} onChange={event => setCustom({ ...custom, label: event.target.value })} /><input placeholder="Fabricant" value={custom.manufacturer} onChange={event => setCustom({ ...custom, manufacturer: event.target.value })} /><input placeholder="Référence / numéro de pièce" value={custom.partNumber} onChange={event => setCustom({ ...custom, partNumber: event.target.value })} /><input placeholder="ID physique / lot" value={custom.physicalId} onChange={event => setCustom({ ...custom, physicalId: event.target.value })} /><input type="number" min="0" step="0.001" placeholder="Masse (kg)" value={custom.massKg} onChange={event => setCustom({ ...custom, massKg: event.target.value })} /><button className="secondary-button" onClick={addCustomPart}>Créer la fiche</button></div></section><section className="panel"><div className="panel-header"><div><p className="eyebrow">NOMENCLATURE ACTIVE</p><h3>Assemblage du projet</h3></div><span className="calculated-badge">{installed.length} ligne(s)</span></div>{installed.length ? <div className="assembly-bom-list">{installed.map(item => <div key={item.id}><span><strong>{item.label}</strong><small>{item.partNumber ?? "Sans référence"} · ID {item.physicalId ?? "à attribuer"} · {item.quantity ?? 1} × {item.massKg.toFixed(3)} kg</small></span><button className="text-button" onClick={() => removeFromAssembly(item.id)}>Retirer</button></div>)}</div> : <p className="section-description">Ajoutez des composants depuis le catalogue pour constituer la nomenclature active.</p>}</section></div>
+    </div>
   );
 }
 
@@ -12346,6 +12468,9 @@ export default function Home() {
                           authQuery.data && serverProjectsQuery.isSuccess
                         )}
                       />
+                    )}
+                    {activeView === "materials" && (
+                      <MaterialsAssemblyView config={config} setConfig={setConfig} />
                     )}
                     {activeView === "aero-center" && (
                       <AeronauticalCenterView

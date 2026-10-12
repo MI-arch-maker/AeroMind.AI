@@ -4,7 +4,18 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "same-origin-assets",
+      transformIndexHtml(html) {
+        // Les assets sont servis par le même domaine que l’application.
+        // Retirer crossorigin évite qu’un proxy sans en-tête CORS bloque le CSS.
+        return html.replace(/\s+crossorigin(?=[=\s>])/g, "");
+      },
+    },
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client/src"),

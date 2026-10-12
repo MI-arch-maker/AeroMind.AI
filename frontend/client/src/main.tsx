@@ -8,6 +8,7 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 import "./action-center.css";
+import "./aeromind.css";
 
 const queryClient = new QueryClient();
 

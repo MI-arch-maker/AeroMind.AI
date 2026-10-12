@@ -11365,20 +11365,9 @@ export default function Home() {
           payload,
         });
       }
-      if (!authQuery.data && localServerHydrated.current) {
-        const timer = window.setTimeout(() => {
-          void fetch("/api/local/workspace", {
-            method: "PUT",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ workspace: payload }),
-          })
-            .then(response => {
-              if (!response.ok) throw new Error("local workspace save failed");
-              setSaveState("saved");
-            })
-            .catch(() => setSaveState("saved"));
-        }, 450);
-        return () => window.clearTimeout(timer);
+      if (!authQuery.data) {
+        // Le mode non authentifié persiste localement uniquement.
+        setSaveState("saved");
       }
       if (
         authQuery.data &&

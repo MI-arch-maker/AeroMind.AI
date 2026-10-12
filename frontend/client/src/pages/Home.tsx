@@ -8483,7 +8483,7 @@ function MissionOperationsView({
     .map(point => `${point.x},${point.y}`)
     .join(" ");
   const virtualAircraftPosition =
-    demoState === "returning" || demoState === "stopped"
+    demoState === "returning" || demoState === "stopped" || demoState === "emergency-land"
       ? { x: missionPlan.homeX, y: missionPlan.homeY }
       : (waypoints[activeWaypoint] ?? {
           x: missionPlan.homeX,
@@ -8498,6 +8498,9 @@ function MissionOperationsView({
     );
   const activateLocalControl = () => {
     onLoadDemoPlan();
+    setDemoState("ready");
+    setActiveWaypoint(0);
+    setMissionElapsedSeconds(0);
     setOperatorApproved(false);
     recordOperation(
       "Parcours local chargé · approbation opérateur requise séparément"
@@ -8513,25 +8516,6 @@ function MissionOperationsView({
       );
     }
   }, [approvalFingerprint]);
-
-  useEffect(() => {
-    if (demoState !== "running" || !waypoints.length) return;
-    const timer = window.setTimeout(() => {
-      if (activeWaypoint >= waypoints.length - 1) {
-        setDemoState("returning");
-        recordOperation(
-          "Dernier point atteint · retour local vers le départ simulé"
-        );
-      } else {
-        const nextIndex = activeWaypoint + 1;
-        setActiveWaypoint(nextIndex);
-        recordOperation(
-          `Progression virtuelle · point ${nextIndex + 1}/${waypoints.length}`
-        );
-      }
-    }, 2800);
-    return () => window.clearTimeout(timer);
-  }, [demoState, activeWaypoint, waypoints.length]);
 
   useEffect(() => {
     if (demoState !== "running") return;
@@ -8970,6 +8954,12 @@ function MissionOperationsView({
       kind: controlKind,
       operator: "local-operator",
       requestedAt: new Date().toISOString(),
+      payload: {
+        missionId: missionPlan.operationName,
+        activeWaypoint,
+        waypointCount: waypoints.length,
+        state: demoState,
+      },
     });
     const audit = createControlAuditEvent(controlDecision);
     if (!controlDecision.accepted) {
@@ -9027,7 +9017,7 @@ function MissionOperationsView({
     if (command === "waypoint" && waypoints.length) {
       if (activeWaypoint >= waypoints.length - 1) {
         recordOperation(
-          "Dernier point atteint · utilisez Retour sûr pour terminer la route simulée"
+          "Dernier point atteint · utilisez Retour sûr ou Atterrissage simulé pour terminer la route"
         );
         return;
       }
@@ -9047,14 +9037,26 @@ function MissionOperationsView({
     observationOperations[0];
   const observationMetrics = {
     altitude:
-      telemetry?.altitudeM ??
-      (demoState === "running" ? 80 + activeWaypoint * 3 : 0),
-    speed: telemetry?.speedKmh ?? (demoState === "running" ? 42 : 0),
+      (telemetrySource === "wss" ? telemetry?.altitudeM : undefined) ??
+      ((demoState === "running" || demoState === "paused" || demoState === "hold")
+        ? waypoints[activeWaypoint]?.altitudeM ?? 0
+        : 0),
+    speed:
+      (telemetrySource === "wss" ? telemetry?.speedKmh : undefined) ??
+      ((demoState === "running" || demoState === "paused" || demoState === "hold")
+        ? waypoints[activeWaypoint]?.speedKmh ?? 0
+        : 0),
     heading:
-      telemetry?.headingDeg ??
-      (demoState === "running" ? (activeWaypoint * 32) % 360 : 0),
+      (telemetrySource === "wss" ? telemetry?.headingDeg : undefined) ??
+      (demoState === "running" || demoState === "paused" || demoState === "hold"
+        ? (() => {
+            const previous = waypoints[Math.max(0, activeWaypoint - 1)] ?? { x: missionPlan.homeX, y: missionPlan.homeY };
+            const current = waypoints[activeWaypoint] ?? previous;
+            return (Math.atan2(current.y - previous.y, current.x - previous.x) * 180) / Math.PI + 90;
+          })()
+        : 0),
     battery:
-      telemetry?.batteryPct ??
+      (telemetrySource === "wss" ? telemetry?.batteryPct : undefined) ??
       (demoState === "running"
         ? Math.max(1, 96 - missionElapsedSeconds * 0.08)
         : 100),
@@ -9067,7 +9069,7 @@ function MissionOperationsView({
       <SectionHeading
         eyebrow="OPS / OBSERVATION EXTERNE · TÉLÉMÉTRIE CONNECTABLE"
         title="Poste de commande de vol"
-        description="L’écran d’observation reçoit une source vidéo indépendante du scénario d’inspection. Connectez une caméra ou un flux de mission réel ; l’inspection et les commandes de démonstration restent séparées."
+        description="L’écran d’observation reçoit une source vidéo indépendante et pilote le scénario SITL à partir du plan de mission actif. Les commandes locales modifient réellement l’état virtuel, sans sortie vers un aéronef physique."
         action={
           <span
             className={`live-state ${videoState === "live" ? "live-on" : "live-off"}`}
@@ -10351,10 +10353,12 @@ function MissionOperationsView({
         <Info size={15} />
         <span>
           Un flux HLS, MP4/WebM ou WSS réel nécessite l’URL et les droits
-          d’accès de votre caméra/passerelle. RTSP natif, MAVLink, arming,
-          upload de mission et commande de vol ne sont pas configurés dans ce
-          dépôt; ce poste ne les simule pas comme connectés. Quitter cet onglet
-          ferme la passerelle et arrête le flux ou la caméra locale.
+          d’accès de votre caméra/passerelle. Le poste pilote ici le plan de
+          mission SITL local : démarrage, pause, reprise, point suivant,
+          maintien, retour et atterrissage modifient l’état virtuel et le
+          journal. Aucune commande n’est envoyée à un aéronef physique.
+          Quitter cet onglet ferme la passerelle et arrête le flux ou la caméra
+          locale.
         </span>
       </div>
     </div>

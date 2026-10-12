@@ -686,7 +686,6 @@ function DroneBlueprint({
       data-wingspan={config.wingspan}
       data-motor-count={motors}
     >
-      <div className="blueprint-grid" />
       <div
         className="blueprint-frame"
         style={{
@@ -1476,21 +1475,12 @@ function EngineeringConceptPreview({ config }: { config: ConceptConfig }) {
             <stop offset="0" stopColor="#b9e8e2" />
             <stop offset="1" stopColor="#2b7780" />
           </linearGradient>
-          <pattern
-            id="engineering-grid"
-            width="32"
-            height="32"
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d="M32 0H0V32"
-              fill="none"
-              stroke="rgba(117,226,220,.11)"
-              strokeWidth="1"
-            />
-          </pattern>
+          <radialGradient id="engineering-physical-backdrop" cx="50%" cy="45%" r="72%">
+            <stop offset="0" stopColor="#173b42" />
+            <stop offset="1" stopColor="#041218" />
+          </radialGradient>
         </defs>
-        <rect width="640" height="300" fill="url(#engineering-grid)" />
+        <rect width="640" height="300" fill="url(#engineering-physical-backdrop)" />
         <ellipse
           cx="320"
           cy="218"
@@ -1498,8 +1488,6 @@ function EngineeringConceptPreview({ config }: { config: ConceptConfig }) {
           ry="28"
           fill="rgba(117,226,220,.08)"
         />
-        <line x1="44" y1="150" x2="596" y2="150" className="engineering-axis" />
-        <line x1="320" y1="42" x2="320" y2="254" className="engineering-axis" />
         {isQuad ? (
           <g className="engineering-model" transform="translate(320 145)">
             <path
@@ -10207,8 +10195,12 @@ function MissionOperationsView({
                   className="mission-command-aircraft-marker"
                   aria-label="Position de démonstration locale"
                 >
-                  <circle r="5.4" />
-                  <path d="M 0 -3 L 2.1 2.2 L 0 1.2 L -2.1 2.2 Z" />
+                  <ellipse cy="5" rx="9" ry="2.6" className="command-drone-shadow" />
+                  <g className="command-physical-drone">
+                    <path d="M0 -5 L2.4 -2.2 L7 -1.2 L8.2 0 L3.2 1.2 L1.4 5 L-1.4 5 L-3.2 1.2 L-8.2 0 L-7 -1.2 L-2.4 -2.2 Z" className="command-drone-body" />
+                    {[-6.5, 6.5].map(x => <g key={x} transform={`translate(${x} -2)`} className="command-drone-rotor"><circle r="2.6" /><path d="M-2.2 0H2.2M0 -2.2V2.2" /></g>)}
+                    <circle r="1.2" className="command-drone-camera" />
+                  </g>
                 </g>
                 <text x="3" y="96" className="mission-map-caption">
                   ROUTE DE CANEVAS · SANS GPS · SANS FOND CARTOGRAPHIQUE

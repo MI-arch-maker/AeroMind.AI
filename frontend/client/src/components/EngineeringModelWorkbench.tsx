@@ -145,19 +145,6 @@ export function EngineeringModelWorkbench({
               <stop stopColor="#e3fff8" />
               <stop offset="1" stopColor="#75e2dc" />
             </linearGradient>
-            <pattern
-              id={`${id}-grid`}
-              width="32"
-              height="32"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M32 0H0V32"
-                fill="none"
-                stroke="rgba(117,226,220,.075)"
-                strokeWidth="1"
-              />
-            </pattern>
             <filter
               id={`${id}-shadow`}
               x="-40%"
@@ -186,7 +173,7 @@ export function EngineeringModelWorkbench({
               <path d="M0 0L7 3.5L0 7Z" fill="#75e2dc" />
             </marker>
           </defs>
-          <rect width="920" height="520" fill={`url(#${id}-grid)`} />
+          <ellipse cx="460" cy="388" rx="300" ry="34" fill="rgba(0, 0, 0, .28)" filter={`url(#${id}-shadow)`} />
           <ellipse
             cx="460"
             cy="337"

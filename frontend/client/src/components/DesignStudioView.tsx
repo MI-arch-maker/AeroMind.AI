@@ -1498,36 +1498,14 @@ export function DesignStudioView({
             }}
           >
             <defs>
-              <pattern
-                id="studio-grid-advanced"
-                width={gridSize * 2}
-                height={gridSize * 2}
-                patternUnits="userSpaceOnUse"
-              >
-                <path
-                  d={`M ${gridSize * 2} 0 L 0 0 0 ${gridSize * 2}`}
-                  fill="none"
-                  stroke="rgba(117,226,220,.14)"
-                  strokeWidth="1"
-                />
-              </pattern>
+              <radialGradient id="studioPhysicalBackdrop" cx="50%" cy="44%" r="70%">
+                <stop offset="0" stopColor="#173b42" />
+                <stop offset="0.7" stopColor="#091f27" />
+                <stop offset="1" stopColor="#041218" />
+              </radialGradient>
             </defs>
-            <rect width="1000" height="600" fill="#061319" />
-            <rect width="1000" height="600" fill="url(#studio-grid-advanced)" />
-            <line
-              x1="500"
-              y1="35"
-              x2="500"
-              y2="565"
-              className="studio-centerline"
-            />
-            <line
-              x1="35"
-              y1="300"
-              x2="965"
-              y2="300"
-              className="studio-centerline"
-            />
+            <rect width="1000" height="600" fill="url(#studioPhysicalBackdrop)" />
+            <ellipse cx="500" cy="470" rx="360" ry="42" fill="rgba(0,0,0,.28)" />
             {visibleParts.length ? (
               visibleParts.map(part => (
                 <g

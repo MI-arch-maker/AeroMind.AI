@@ -12,8 +12,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .copilot import router as copilot_router
+from .engineering_extensions import router as engineering_extensions_router
 from .admin import activity as admin_activity, create_account, list_accounts, update_account
 from .oidc import _verified, router as oidc_router
+from sitl_modules.api import router as sitl_router
 
 
 def _engine_status():
@@ -46,6 +48,8 @@ if FRONTEND_DIR.is_dir():
 
 app.include_router(oidc_router)
 app.include_router(copilot_router)
+app.include_router(engineering_extensions_router)
+app.include_router(sitl_router)
 
 
 @app.middleware('http')
@@ -213,7 +217,7 @@ def ready():
 
 @app.get('/api/capabilities')
 def capabilities():
-    return {'service': 'aeromind-ai', 'version': '2.0.0', 'oidc': bool(settings.oidc), 'llm': bool(settings.openai_api_key), 'hardware_control': False, 'mission_upload': False, 'telemetry_write': False}
+    return {'service': 'aeromind-ai', 'version': '2.0.0', 'oidc': bool(settings.oidc), 'llm': bool(settings.openai_api_key), 'sitl': True, 'hardware_control': False, 'mission_upload': False, 'telemetry_write': False}
 
 
 @app.get('/api/system/status')

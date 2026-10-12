@@ -23,6 +23,7 @@ import {
   type DronePartDefinition,
 } from "../lib/droneParts";
 import { manufacturerPartCatalog } from "../lib/manufacturerParts";
+import { materialCatalog, materialLibrarySummary } from "../lib/materialLibrary";
 import { ParametricDronePreview } from "../components/ParametricDronePreview";
 import type { MissionTelemetryFrame } from "../lib/missionBridge";
 import {
@@ -374,8 +375,8 @@ const navItems: Array<{
   },
   {
     id: "materials",
-    label: "Matériaux & assemblages",
-    meta: "BOM",
+    label: "Bibliothèque matériels",
+    meta: String(materialLibrarySummary.total).padStart(2, "0"),
     icon: Layers3,
   },
   {
@@ -10414,10 +10415,7 @@ function MaterialsAssemblyView({
   const [source, setSource] = useState<"all" | "manufacturer" | "concept" | "user">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [custom, setCustom] = useState({ label: "", manufacturer: "", partNumber: "", massKg: "", physicalId: "" });
-  const catalog = useMemo(
-    () => [...manufacturerPartCatalog, ...dronePartCatalog.filter(item => !manufacturerPartCatalog.some(ref => ref.id === item.id))],
-    []
-  );
+  const catalog = materialCatalog;
   const installed = config.installedMaterials ?? [];
   const allItems = [...catalog, ...installed.filter(item => item.catalogSource === "user")];
   const filtered = allItems.filter(item => {
@@ -10463,12 +10461,12 @@ function MaterialsAssemblyView({
   };
   return (
     <div className="view-stack materials-assembly-view">
-      <SectionHeading eyebrow="BOM / IDENTIFICATION MATÉRIELLE" title="Matériaux & assemblages personnalisés" description="Catalogue des composants, fiches de traçabilité et nomenclature du projet. Les références physiques doivent être vérifiées sur pièce et par leur fabricant avant toute décision d’ingénierie." />
-      <div className="materials-summary-grid">
-        <div><strong>{catalog.length}</strong><span>références catalogue</span></div>
+      <SectionHeading eyebrow="BIBLIOTHÈQUE / IDENTIFICATION MATÉRIELLE" title="Bibliothèque de matériels & assemblages" description="Catalogue unifié des références fabricants, modules de concept et matériels personnalisés. Chaque fiche peut être ajoutée à la nomenclature, puis vérifiée sur pièce avant toute décision d’ingénierie." />
+      <div className="materials-summary-grid" aria-label="Résumé de la bibliothèque de matériels">
+        <div><strong>{materialLibrarySummary.total}</strong><span>références catalogue</span></div>
         <div><strong>{installed.length}</strong><span>éléments dans l’assemblage</span></div>
         <div><strong>{installedPartsMassKg(installed).toFixed(2)} kg</strong><span>masse installée calculée</span></div>
-        <div><strong>{manufacturerPartCatalog.length}</strong><span>références fabricant sourcées</span></div>
+        <div><strong>{materialLibrarySummary.manufacturer}</strong><span>références fabricant sourcées</span></div>
       </div>
       <section className="panel materials-toolbar">
         <input aria-label="Rechercher un composant" placeholder="Rechercher moteur, hélice, capteur, référence…" value={query} onChange={event => setQuery(event.target.value)} />

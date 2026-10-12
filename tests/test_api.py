@@ -19,9 +19,41 @@ def test_health():
 
 def test_capabilities_disable_physical_io():
     data = client.get('/api/capabilities').json()
+    assert data['sitl'] is True
     assert data['hardware_control'] is False
     assert data['mission_upload'] is False
     assert data['telemetry_write'] is False
+
+
+def test_sitl_status_is_integrated_and_virtual_only():
+    response = client.get('/api/sitl/status')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['enabled'] is True
+    assert data['hardware_control'] is False
+    assert 'flight-fsm' in data['modules']
+
+
+def test_sitl_flight_lifecycle_and_rc_mapping():
+    assert client.post('/api/sitl/flight/disarm').status_code == 200
+    assert client.post('/api/sitl/flight/arm', json={'demo_only': True}).status_code == 200
+    mode = client.post('/api/sitl/flight/mode', json={'mode': 'Guided'})
+    assert mode.status_code == 200
+    takeoff = client.post('/api/sitl/flight/takeoff?altitude_m=12')
+    assert takeoff.status_code == 200
+    assert takeoff.json()['mode'] == 'Guided'
+    rc = client.post('/api/sitl/hal/rc', json={'roll': 1000, 'pitch': 2000, 'yaw': 1500, 'throttle': 1750})
+    assert rc.status_code == 200
+    assert rc.json()['inputs']['throttle'] == 0.75
+    assert client.post('/api/sitl/flight/land').status_code == 200
+    assert client.post('/api/sitl/flight/disarm').status_code == 200
+
+
+def test_sitl_payload_lifecycle_is_virtual():
+    assert client.post('/api/sitl/payload/rgb-camera/power-on').status_code == 200
+    response = client.post('/api/sitl/payload/rgb-camera/trigger?event=test-capture')
+    assert response.status_code == 200
+    assert response.json()['hardware_control'] is False
 
 
 def test_external_urls_are_normalized():
@@ -73,3 +105,16 @@ def test_superadmin_api_requires_allowlisted_oidc_identity():
         assert client.get('/api/trpc/superAdmin/accounts', cookies={'aeromind_session': admin}).status_code == 200
     finally:
         app_module.settings.superadmin_emails = original
+
+
+def test_engineering_extensions_are_authenticated_and_read_only():
+    assert client.post('/api/engineering/cfd/airfoil', json={}).status_code == 401
+    session = _signed(_b64(b'sub-admin|ADMIN@example.com'))
+    response = client.post('/api/engineering/cfd/airfoil', cookies={'aeromind_session': session}, json={
+        'code': '2412', 'alpha_deg': 4, 'reynolds': 1000000,
+    })
+    assert response.status_code == 200
+    assert response.json()['method'].startswith('NACA 4 chiffres')
+    propulsion = client.post('/api/engineering/propulsion/compare', cookies={'aeromind_session': session}, json={})
+    assert propulsion.status_code == 200
+    assert propulsion.json()['hardware_control'] is False

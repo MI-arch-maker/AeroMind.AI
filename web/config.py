@@ -2,6 +2,7 @@ from functools import lru_cache
 import os
 from typing import Literal
 from urllib.parse import urlparse
+from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 try:
@@ -12,36 +13,57 @@ except ModuleNotFoundError:  # Compatibilité avec une image Render ancienne/inc
 
     class BaseSettings(BaseModel):
         def __init__(self, **values):
+            env = dict(values)
+            env_file = Path('.env')
+            if env_file.is_file():
+                for line in env_file.read_text(encoding='utf-8').splitlines():
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, value = line.split('=', 1)
+                    env.setdefault(key.strip(), value.strip().strip('"\''))
             for field_name, field in self.__class__.model_fields.items():
                 alias = field.alias or field_name
                 if field_name not in values and alias in os.environ:
                     values[field_name] = os.environ[alias]
+                elif field_name not in values and alias in env:
+                    values[field_name] = env[alias]
             super().__init__(**values)
 
 
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    # Certaines versions récentes de Pydantic Settings chargent les alias
+    # depuis .env puis valident le nom Python du champ. Autoriser les deux
+    # formes évite un échec de démarrage sur les déploiements Render.
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+        populate_by_name=True,
+    )
 
     app_name: str = 'AeroMind AI'
-    environment: Literal['development', 'staging', 'production'] = Field('production', alias='AEROMIND_ENV')
-    port: int = Field(10000, alias='PORT')
-    session_secret: str = Field(..., alias='AEROMIND_SESSION_SECRET')
-    superadmin_emails: str = Field('mcgregoralvin14@gmail.com', alias='AEROMIND_SUPERADMIN_EMAILS')
-    allowed_origins: str = Field('', alias='AEROMIND_ALLOWED_ORIGINS')
-    allowed_hosts: str = Field('*.onrender.com,localhost,127.0.0.1', alias='AEROMIND_ALLOWED_HOSTS')
-    entra_tenant_id: str | None = Field(None, alias='ENTRA_TENANT_ID')
-    entra_client_id: str | None = Field(None, alias='ENTRA_CLIENT_ID')
-    entra_client_secret: str | None = Field(None, alias='ENTRA_CLIENT_SECRET')
-    entra_redirect_uri: str | None = Field(None, alias='ENTRA_REDIRECT_URI')
-    oidc_issuer: str | None = Field(None, alias='OIDC_ISSUER')
-    oidc_client_id: str | None = Field(None, alias='OIDC_CLIENT_ID')
-    oidc_client_secret: str | None = Field(None, alias='OIDC_CLIENT_SECRET')
-    oidc_redirect_uri: str | None = Field(None, alias='OIDC_REDIRECT_URI')
-    openai_api_key: str | None = Field(None, alias='OPENAI_API_KEY')
-    openai_api_base: str = Field('https://api.openai.com/v1', alias='OPENAI_API_BASE')
-    openai_model: str = Field('gpt-5-mini', alias='OPENAI_MODEL')
+    environment: Literal['development', 'staging', 'production'] = Field('production', alias='AEROMIND_ENV', validation_alias='AEROMIND_ENV')
+    port: int = Field(10000, alias='PORT', validation_alias='PORT')
+    session_secret: str = Field(..., alias='AEROMIND_SESSION_SECRET', validation_alias='AEROMIND_SESSION_SECRET')
+    # Aucun compte privilégié n’est autorisé par défaut ; définir explicitement
+    # AEROMIND_SUPERADMIN_EMAILS dans l’environnement sécurisé de déploiement.
+    superadmin_emails: str = Field('', alias='AEROMIND_SUPERADMIN_EMAILS', validation_alias='AEROMIND_SUPERADMIN_EMAILS')
+    allowed_origins: str = Field('', alias='AEROMIND_ALLOWED_ORIGINS', validation_alias='AEROMIND_ALLOWED_ORIGINS')
+    allowed_hosts: str = Field('*.onrender.com,localhost,127.0.0.1', alias='AEROMIND_ALLOWED_HOSTS', validation_alias='AEROMIND_ALLOWED_HOSTS')
+    entra_tenant_id: str | None = Field(None, alias='ENTRA_TENANT_ID', validation_alias='ENTRA_TENANT_ID')
+    entra_client_id: str | None = Field(None, alias='ENTRA_CLIENT_ID', validation_alias='ENTRA_CLIENT_ID')
+    entra_client_secret: str | None = Field(None, alias='ENTRA_CLIENT_SECRET', validation_alias='ENTRA_CLIENT_SECRET')
+    entra_redirect_uri: str | None = Field(None, alias='ENTRA_REDIRECT_URI', validation_alias='ENTRA_REDIRECT_URI')
+    oidc_issuer: str | None = Field(None, alias='OIDC_ISSUER', validation_alias='OIDC_ISSUER')
+    oidc_client_id: str | None = Field(None, alias='OIDC_CLIENT_ID', validation_alias='OIDC_CLIENT_ID')
+    oidc_client_secret: str | None = Field(None, alias='OIDC_CLIENT_SECRET', validation_alias='OIDC_CLIENT_SECRET')
+    oidc_redirect_uri: str | None = Field(None, alias='OIDC_REDIRECT_URI', validation_alias='OIDC_REDIRECT_URI')
+    openai_api_key: str | None = Field(None, alias='OPENAI_API_KEY', validation_alias='OPENAI_API_KEY')
+    openai_api_base: str = Field('https://api.openai.com/v1', alias='OPENAI_API_BASE', validation_alias='OPENAI_API_BASE')
+    openai_model: str = Field('gpt-5-mini', alias='OPENAI_MODEL', validation_alias='OPENAI_MODEL')
 
     @field_validator('openai_api_base', mode='before')
     @classmethod

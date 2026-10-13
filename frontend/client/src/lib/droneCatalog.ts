@@ -20,7 +20,11 @@ export type CatalogModelType =
   | "parapente"
   | "ornithoptère"
   | "cyclocoptère"
-  | "planeur";
+  | "planeur"
+  | "hale-voilure"
+  | "male-voilure"
+  | "stealth-wing"
+  | "blended-pusher";
 
 export type DroneCatalogDesign = {
   key: NonNullable<ConceptConfig["airframe"]>;
@@ -116,7 +120,14 @@ const vtol: ProfileTuple[] = [
   ["vigil-04", "VIGIL-04", "Défense non armée · météo et évacuation", "Mesure de situation, relais et soutien à l’évacuation sous autorité compétente.", 2.9, 1.45, 0.33, 1.5, 44, 6, 1460, "violet", "aeromind-parametric", "assistance", "défense-non-armée"],
 ];
 
+const mantisProfiles: DroneCatalogDesign[] = [
+  profile({ key: "fixed-wing", modelType: "blended-pusher", id: "mantis-x-01", label: "MANTIS-X 01", family: "Aile haute · propulsive · empennage double dérive", mission: "Observation, inspection linéaire et cartographie avec cellule profilée et propulsion arrière.", specs: "6,2 m · 1,8 kg utile · 1 moteur propulsif", disciplines: "Aile haute · nacelle profilée · dérives inclinées", tone: "cyan", silhouette: "surveillance", referenceLabel: "Morphologie issue du cahier des charges joint", configuration: { wingspan: 6.2, chord: 0.62, fuselageLength: 2.55, propDiameter: 0.58, batteryWh: 2860, payloadKg: 1.8, cruiseSpeedKmh: 92, motorCount: 1, altitudeM: 4200 } }),
+  profile({ key: "fixed-wing", modelType: "blended-pusher", id: "mantis-x-02", label: "MANTIS-X 02", family: "Aile haute · propulsive · endurance", mission: "Variante longue endurance pour surveillance environnementale et relais de situation.", specs: "8,4 m · 2,4 kg utile · 1 moteur propulsif", disciplines: "Envergure augmentée · énergie · stabilité", tone: "violet", silhouette: "long", referenceLabel: "Morphologie issue du cahier des charges joint", configuration: { wingspan: 8.4, chord: 0.7, fuselageLength: 3.05, propDiameter: 0.62, batteryWh: 3680, payloadKg: 2.4, cruiseSpeedKmh: 104, motorCount: 1, altitudeM: 5200 } }),
+  profile({ key: "fixed-wing", modelType: "blended-pusher", id: "mantis-x-03", label: "MANTIS-X 03", family: "Aile haute · propulsive · capteurs", mission: "Variante capteur pour inspection d’infrastructures et relevés multispectraux.", specs: "5,1 m · 1,2 kg utile · 1 moteur propulsif", disciplines: "Baie ventrale · voilure compacte · retour sûr", tone: "amber", silhouette: "assistance", referenceLabel: "Morphologie issue du cahier des charges joint", configuration: { wingspan: 5.1, chord: 0.56, fuselageLength: 2.1, propDiameter: 0.5, batteryWh: 2240, payloadKg: 1.2, cruiseSpeedKmh: 78, motorCount: 1, altitudeM: 2800 } }),
+  profile({ key: "fixed-wing", modelType: "blended-pusher", id: "mantis-x-04", label: "MANTIS-X 04", family: "Aile haute · propulsive · secours", mission: "Variante compacte pour recherche-secours et cartographie d’urgence supervisée.", specs: "4,2 m · 0,9 kg utile · 1 moteur propulsif", disciplines: "Déploiement rapide · visibilité · récupération", tone: "cyan", silhouette: "flat", referenceLabel: "Morphologie issue du cahier des charges joint", configuration: { wingspan: 4.2, chord: 0.5, fuselageLength: 1.8, propDiameter: 0.44, batteryWh: 1760, payloadKg: 0.9, cruiseSpeedKmh: 70, motorCount: 1, altitudeM: 2200 } }),
+];
 const specializedProfiles: DroneCatalogDesign[] = [
+  ...mantisProfiles,
   profile({ key: "fixed-wing", modelType: "aile-volante", id: "wing-01", label: "WING-01", family: "Aile volante pure", mission: "Cartographie silencieuse et observation longue portée avec cellule sans empennage.", specs: "4,4 m · 1,2 kg utile · 1 moteur", disciplines: "Flèche · entrée dorsale · composites", tone: "cyan", silhouette: "fusiform", configuration: { wingspan: 4.4, chord: 0.48, fuselageLength: 1.35, propDiameter: 0.46, batteryWh: 1560, payloadKg: 1.2, cruiseSpeedKmh: 65, motorCount: 1, altitudeM: 180 } }),
   profile({ key: "fixed-wing", modelType: "aile-volante", id: "wing-02", label: "WING-02", family: "Aile volante compacte", mission: "Inspection et relais de données sur plateforme à faible traînée.", specs: "2,6 m · 0,7 kg utile · 1 moteur", disciplines: "Planform · stabilité · capteurs", tone: "violet", silhouette: "flat", configuration: { wingspan: 2.6, chord: 0.38, fuselageLength: 0.92, propDiameter: 0.34, batteryWh: 920, payloadKg: 0.7, cruiseSpeedKmh: 52, motorCount: 1, altitudeM: 120 } }),
   profile({ key: "fixed-wing", modelType: "tandem-wing", id: "tandem-01", label: "TANDEM-01", family: "Voilure tandem", mission: "Banc de comparaison de portance et de stabilité pour missions d’inspection.", specs: "3,0 m · 1,0 kg utile · 1 moteur", disciplines: "Deux ailes · centrage · essais", tone: "amber", silhouette: "long", configuration: { wingspan: 3, chord: 0.3, fuselageLength: 1.5, propDiameter: 0.4, batteryWh: 1040, payloadKg: 1, cruiseSpeedKmh: 48, motorCount: 1, altitudeM: 130 } }),
@@ -137,6 +148,14 @@ const specializedProfiles: DroneCatalogDesign[] = [
   profile({ key: "fixed-wing", modelType: "ornithoptère", id: "ornitho-01", label: "ORNITHO-01", family: "Ornithoptère", mission: "Banc de recherche biomimétique à battement d’ailes et capteurs légers.", specs: "1,8 m · 0,3 kg utile · 2 moteurs", disciplines: "Battement · résonance · acoustique", tone: "amber", silhouette: "flat", configuration: { wingspan: 1.8, chord: 0.3, fuselageLength: 0.75, propDiameter: 0.2, batteryWh: 520, payloadKg: 0.3, cruiseSpeedKmh: 24, motorCount: 2, altitudeM: 80 } }),
   profile({ key: "quadcopter", modelType: "cyclocoptère", id: "cyclo-01", label: "CYCLO-01", family: "Cyclocoptère", mission: "Étude de propulsion cyclique et de contrôle vectoriel en environnement contraint.", specs: "1,3 m · 0,6 kg utile · 4 moteurs", disciplines: "Cylindres · vecteur · contrôle", tone: "violet", silhouette: "flat", configuration: { wingspan: 1.3, chord: 0.3, fuselageLength: 0.62, propDiameter: 0.32, batteryWh: 780, payloadKg: 0.6, cruiseSpeedKmh: 30, motorCount: 4, altitudeM: 70 } }),
   profile({ key: "fixed-wing", modelType: "planeur", id: "glider-01", label: "GLIDER-01", family: "Planeur instrumenté", mission: "Endurance silencieuse, thermiques simulés et relais de mesure scientifique.", specs: "5,8 m · 0,8 kg utile · 1 moteur", disciplines: "Finesse · ballast · thermiques", tone: "cyan", silhouette: "long", configuration: { wingspan: 5.8, chord: 0.26, fuselageLength: 1.8, propDiameter: 0.3, batteryWh: 720, payloadKg: 0.8, cruiseSpeedKmh: 46, motorCount: 1, altitudeM: 220 } }),
+  profile({ key: "fixed-wing", modelType: "hale-voilure", id: "hale-stratospheric", label: "HALE-STRATOSPHERIC", family: "Profil HALE-Stratospheric", mission: "Surveillance haute altitude non armée et observation de zones de crise environnementale.", specs: "4,8 m · nez bulbeux · 1 moteur", disciplines: "Haute altitude · environnement · endurance", tone: "cyan", silhouette: "long", configuration: { wingspan: 4.8, chord: 0.34, fuselageLength: 2.2, propDiameter: 0.34, batteryWh: 2480, payloadKg: 1.4, cruiseSpeedKmh: 72, motorCount: 1, altitudeM: 18000 } }),
+  profile({ key: "fixed-wing", modelType: "male-voilure", id: "male-longenver", label: "MALE-LONGENVER", family: "Profil MALE-LongEnver", mission: "Inspection de sécurité civile sur corridors étendus, avec grande autonomie et capteurs non offensifs.", specs: "3,6 m · fuselage 2,1 m · 1 moteur", disciplines: "Corridor · V inversé · autonomie", tone: "amber", silhouette: "long", configuration: { wingspan: 3.6, chord: 0.38, fuselageLength: 2.1, propDiameter: 0.38, batteryWh: 2120, payloadKg: 1.8, cruiseSpeedKmh: 68, motorCount: 1, altitudeM: 9000 } }),
+  profile({ key: "fixed-wing", modelType: "stealth-wing", id: "stealth-wing-01", label: "STEALTH-WING", family: "Profil Furtif Stealth-Wing", mission: "Aile volante intégrée pour collecte de capteurs en environnement électromagnétique perturbé, sans charge offensive.", specs: "3,2 m · aile volante intégrée · 1 moteur", disciplines: "Faible signature · CEM · aile volante", tone: "violet", silhouette: "flat", configuration: { wingspan: 3.2, chord: 0.52, fuselageLength: 1.35, propDiameter: 0.3, batteryWh: 1860, payloadKg: 1.1, cruiseSpeedKmh: 84, motorCount: 1, altitudeM: 6000 } }),
+
+  profile({ key: "fixed-wing", modelType: "hale-voilure", id: "strata-hale-115", label: "STRATA-HALE", family: "Variante STRATA-HALE · Haute Altitude", mission: "Surveillance longue distance non armée, avec baie de capteurs optimisée et empennage en V inversé.", specs: "11,5 m · fuselage allongé · baie capteurs", disciplines: "Haute altitude · V inversé · endurance", tone: "cyan", silhouette: "long", configuration: { wingspan: 11.5, chord: 0.42, fuselageLength: 2.8, propDiameter: 0.38, batteryWh: 3180, payloadKg: 2.4, cruiseSpeedKmh: 76, motorCount: 1, altitudeM: 18000 } }),
+  profile({ key: "fixed-wing", modelType: "stealth-wing", id: "stealth-wing-flat-01", label: "STEALTH-WING · AILE VOLANTE", family: "Variante furtive Stealth-Wing", mission: "Aile volante intégrée en profil triangulaire plat continu, sans dérive verticale, pour milieux perturbés.", specs: "3,2 m · triangle extrudé · sans dérive", disciplines: "Aile volante · CEM · faible signature", tone: "violet", silhouette: "flat", configuration: { wingspan: 3.2, chord: 0.58, fuselageLength: 1.35, propDiameter: 0.3, batteryWh: 2040, payloadKg: 1.2, cruiseSpeedKmh: 88, motorCount: 1, altitudeM: 6200 } }),
+  profile({ key: "fixed-wing", modelType: "male-voilure", id: "sentinel-male-132", label: "SENTINEL-MALE", family: "Variante SENTINEL-MALE · Moyenne Altitude", mission: "Inspection de corridors de sécurité civile avec long fuselage, envergure optimisée et tourelle optronique stabilisée.", specs: "13,2 m · tourelle optronique · 1 moteur", disciplines: "Moyenne altitude · corridor · optronique", tone: "amber", silhouette: "long", configuration: { wingspan: 13.2, chord: 0.46, fuselageLength: 2.6, propDiameter: 0.4, batteryWh: 2860, payloadKg: 2.1, cruiseSpeedKmh: 70, motorCount: 1, altitudeM: 9000 } }),
+
 ];
 
 function fromTuple(tuple: ProfileTuple, key: DroneCatalogDesign["key"]): DroneCatalogDesign {
@@ -178,11 +197,21 @@ const vtolProfiles = vtol.map(tuple => fromTuple(tuple, "vtol"));
  * de défense démocratique non armés.
  * Les valeurs sont des hypothèses d’avant-projet, jamais des performances certifiées.
  */
+// Parité stricte avec la bibliothèque de l’ancienne URL publique.
+// Ces profils ajoutés dans une session ultérieure ne font pas partie de la source héritée.
+const legacyExcludedIds = new Set([
+  "hale-stratospheric",
+  "male-longenver",
+  "stealth-wing-01",
+  "strata-hale-115",
+  "stealth-wing-flat-01",
+  "sentinel-male-132",
+]);
 export const droneCatalog: DroneCatalogDesign[] = [
   ...fixedWingProfiles,
   ...multirotorProfiles,
   ...vtolProfiles,
-  ...specializedProfiles,
+  ...specializedProfiles.filter(item => !legacyExcludedIds.has(item.id)),
 ].map(item => ({
   ...item,
   defenseUse: item.role === "défense-non-armée" ? nonArmedDefenseUse : item.defenseUse,

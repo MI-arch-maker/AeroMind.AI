@@ -59,6 +59,13 @@ export type LocalMissionPlan = {
   waypoints: MissionWaypoint[];
 };
 
+/** Conditions de mission synthétiques : elles modifient uniquement le modèle local. */
+export type MissionEnvironment = {
+  ambientC: number;
+  windKmh: number;
+  emiLevel: number;
+};
+
 export type DronePartCategory =
   | "airframe"
   | "propulsion"
@@ -90,7 +97,13 @@ export type CalculationModelType =
   | "parapente"
   | "ornithoptère"
   | "cyclocoptère"
-  | "planeur";
+  | "planeur"
+  /** Longue endurance haute altitude : fuselage allongé, très grande envergure. */
+  | "hale-voilure"
+  /** Longue endurance moyenne altitude : cellule allongée à charge utile de capteurs. */
+  | "male-voilure"
+  | "stealth-wing"
+  | "blended-pusher";
 
 export type InstalledMaterial = {
   id: string;
@@ -111,6 +124,12 @@ export type InstalledMaterial = {
   manufacturerDataStatus?: "verified" | "partial" | "estimate";
   physicalStatus?: "not-verified" | "received" | "inspected" | "rejected";
   physicalId?: string;
+  /** Aire de traînée équivalente estimée, m²; non mesurée sauf source vérifiée. */
+  dragAreaM2?: number;
+  /** Puissance auxiliaire estimée, W; ne remplace pas une mesure électrique. */
+  powerDrawW?: number;
+  /** Bus logique du banc virtuel (aucune liaison électrique réelle). */
+  connectedTo?: string;
   assemblyNotes?: string;
   dimensions?: string;
   electrical?: string;
@@ -197,6 +216,8 @@ export type ConceptConfig = {
   flightControls?: FlightControlsConfig;
   /** Plan de navigation local et simulé, sans coordonnées réelles. */
   missionPlan?: LocalMissionPlan;
+  /** Conditions de simulation dégradées, persistées avec la configuration locale. */
+  missionEnvironment?: MissionEnvironment;
   /** Matériaux et modules réellement sélectionnés dans la nomenclature. */
   installedMaterials?: InstalledMaterial[];
   /** Calques personnalisés du Studio; métadonnée d’édition, sans effet sur la simulation. */
@@ -380,6 +401,14 @@ const calculationProfiles: Record<CalculationModelType, CalculationProfile> = {
     powerFactor: 1,
     transitionFactor: 1,
   },
+  "blended-pusher": {
+    structureBaseKg: 1.82,
+    structurePerSpanKg: 0.5,
+    propulsionBaseKg: 0.9,
+    propulsionPerMotorKg: 0.24,
+    powerFactor: 0.96,
+    transitionFactor: 1,
+  },
   tiltrotor: {
     structureBaseKg: 1.72,
     structurePerSpanKg: 0.5,
@@ -524,6 +553,32 @@ const calculationProfiles: Record<CalculationModelType, CalculationProfile> = {
     powerFactor: 0.62,
     transitionFactor: 1,
   },
+  // Longue endurance : la structure coûte en envergure, la propulsion reste
+  // dimensionnée pour un vol de croisière lent et économique.
+  "hale-voilure": {
+    structureBaseKg: 1.68,
+    structurePerSpanKg: 0.26,
+    propulsionBaseKg: 0.74,
+    propulsionPerMotorKg: 0.17,
+    powerFactor: 0.58,
+    transitionFactor: 1,
+  },
+  "male-voilure": {
+    structureBaseKg: 1.52,
+    structurePerSpanKg: 0.32,
+    propulsionBaseKg: 0.82,
+    propulsionPerMotorKg: 0.2,
+    powerFactor: 0.7,
+    transitionFactor: 1,
+  },
+  "stealth-wing": {
+    structureBaseKg: 1.44,
+    structurePerSpanKg: 0.38,
+    propulsionBaseKg: 0.78,
+    propulsionPerMotorKg: 0.18,
+    powerFactor: 0.76,
+    transitionFactor: 1,
+  },
 };
 
 export function getCalculationProfile(
@@ -589,13 +644,44 @@ export function runSimulation(
   const wingLoadingKgM2 = totalMassKg / wingAreaM2;
   const architecturePowerFactor =
     calculationProfile.powerFactor * calculationProfile.transitionFactor;
+  const environment = config.missionEnvironment ?? {
+    ambientC: 20,
+    windKmh: config.windSpeedKmh,
+    emiLevel: 0,
+  };
+  const installedAuxiliaryPowerW = (config.installedMaterials ?? []).reduce(
+    (sum, part) => sum + Math.max(0, part.powerDrawW ?? 0),
+    0
+  );
+  const installedDragAreaM2 = (config.installedMaterials ?? []).reduce(
+    (sum, part) => sum + Math.max(0, part.dragAreaM2 ?? 0),
+    0
+  );
+  const speedMps = Math.max(0, config.cruiseSpeedKmh / 3.6);
+  // Low-order engineering estimate only; coefficients are explicit and unqualified.
+  const componentDragPowerW = installedDragAreaM2 * speedMps ** 2 * 18;
+  const weatherPowerFactor =
+    1 + Math.abs(environment.ambientC - 20) * 0.0015 +
+    Math.max(0, environment.emiLevel) * 0.025;
+  const extraWindPowerW =
+    Math.max(0, environment.windKmh - config.windSpeedKmh) * 1.4;
   const estimatedPowerW =
-    (165 +
+    ((165 +
       totalMassKg * 8 +
       config.cruiseSpeedKmh * 0.4 +
-      config.windSpeedKmh * 1.4) *
-    architecturePowerFactor;
-  const energyUsableWh = config.batteryWh * (1 - config.reserveFraction);
+      config.windSpeedKmh * 1.4 +
+      extraWindPowerW) *
+      architecturePowerFactor *
+      weatherPowerFactor) +
+    componentDragPowerW +
+    installedAuxiliaryPowerW;
+  const batteryTemperatureFactor = Math.max(
+    0.72,
+    1 - Math.max(0, 10 - environment.ambientC) * 0.003 -
+      Math.max(0, environment.ambientC - 40) * 0.004
+  );
+  const energyUsableWh =
+    config.batteryWh * (1 - config.reserveFraction) * batteryTemperatureFactor;
   const enduranceH = energyUsableWh / estimatedPowerW;
   const rangeKm = enduranceH * config.cruiseSpeedKmh;
   const enduranceTarget = Number(
@@ -645,7 +731,8 @@ export function runSimulation(
       margin: `${formatNumber(energyMarginH)} h`,
       status: enduranceStatus,
       uncertainty: "± 15 %",
-      assumption: "Puissance moyenne constante, réserve batterie incluse.",
+      assumption:
+        "Puissance moyenne estimée; réserve, température, vent dégradé et consommations/traînée de composants inclus si renseignés. Coefficients non qualifiés.",
     },
     {
       id: "range",

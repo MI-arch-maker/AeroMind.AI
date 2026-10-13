@@ -1,44 +1,55 @@
-# AeroMind AI — cockpit React + API Python sécurisée
+# AeroMind AI
 
-Le noyau Python métier est conservé dans `core`, `hardware`, `safety`, `simulation`, `testing`, `maintenance`, `security`, `control` et `ai_copilot`. Le cockpit React/Vite d’origine est intégré dans `frontend/` et est servi par FastAPI.
+Cockpit drone, API FastAPI, simulations et banc LabBench. Le mode de fonctionnement par défaut est **simulation**; le contrôle matériel réel est désactivé (`HARDWARE_CONTROL=false`).
 
-## Lancement local
+## Installation locale
+
+Pré-requis : Python 3.11+, Node.js 22 et pnpm 10.
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
+python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-uvicorn web.app:app --host 127.0.0.1 --port 10000 --reload
+cp .env.example .env  # définir un secret aléatoire d’au moins 32 octets
+npm install --global pnpm@10.18.0
+cd frontend && pnpm install --frozen-lockfile && pnpm run build && cd ..
+alembic upgrade head
+uvicorn web.app:app --reload --port 10000
 ```
 
-Pour reconstruire le cockpit :
+Sans `DATABASE_URL`, SQLite est utilisé dans `data/aeromind.db` uniquement pour le développement. Les migrations sont versionnées dans `migrations/` et s’exécutent avec `alembic upgrade head`; le démarrage du conteneur les applique avant Uvicorn.
 
-```bash
-cd frontend
-pnpm install --frozen-lockfile
-pnpm exec vite build --config vite.config.ts
-```
+## Configuration
 
-L’API sert ensuite `frontend/dist` sur `/`, `/labbench` et `/super-admin`. Les endpoints de santé sont `/api/health`, `/api/ready`, `/api/capabilities`, `/api/system/status` et `/api/safety/check`.
+Variables principales : `DATABASE_URL` (PostgreSQL en production), `AEROMIND_SESSION_SECRET`, `AEROMIND_ENV`, `AEROMIND_ALLOWED_ORIGINS` (liste exacte d’origines séparées par virgule), `AEROMIND_ALLOWED_HOSTS`, les variables `OIDC_*`, `AEROMIND_SUPERADMIN_EMAILS` et, facultativement, `OPENAI_API_KEY`/`OPENAI_API_BASE`/`OPENAI_MODEL`. **Ne jamais committer les secrets.** `HARDWARE_CONTROL` reste à `false` par défaut.
 
-## Render / Docker
+## API métier
 
-Le `Dockerfile` utilise deux étapes : Node construit le cockpit React, puis Python installe FastAPI et sert les fichiers compilés. Render doit utiliser le runtime Docker, `./Dockerfile`, le port `10000` et le health check `/api/health`.
+API JSON sous `/api`. Les projets, simulations, rapports, sessions LabBench, drones et réglages sont rattachés au sujet OIDC authentifié et filtrés par propriétaire. Routes :
 
-```bash
-docker build -t aeromind-ai .
-docker run --rm -p 10000:10000 --env-file .env aeromind-ai
-```
+- `GET/POST /api/projects`, `GET/PUT/PATCH/DELETE /api/projects/{id}`
+- `GET/PUT /api/projects/{id}/drone`
+- `GET/POST /api/projects/{id}/simulations|reports|lab-sessions`, puis `GET/PUT/PATCH/DELETE .../{record_id}`
+- `GET/PUT /api/settings`
+- `GET /api/health` (application, version, base, mode)
 
-## Authentification et IA
+Création de projet crée un drone par défaut lié au projet. Le pont `/api/trpc` est conservé pour les écrans historiques.
 
-Microsoft Entra/OIDC utilise PKCE, state, nonce, validation JWKS et cookies signés `HttpOnly`, `Secure`, `SameSite`. La redirection exacte est :
+## Premier administrateur
 
-```text
-https://aeromind-ai-eu4b.onrender.com/api/auth/oidc/callback
-```
+Aucune adresse privilégiée n’est codée en dur. L’opérateur valide l’adresse avec `python -m web.create_admin --email admin@exemple.fr`, puis configure cette adresse dans le secret Render `AEROMIND_SUPERADMIN_EMAILS`. Ce flux ne crée pas de compte local et n’accorde aucun rôle à une identité autre que l’utilisateur OIDC correspondant.
 
-Le cockpit peut vérifier la session avec `/api/auth/oidc/me`. Le copilote OpenAI-compatible est optionnel et protégé par session OIDC. Sans clé LLM, le mode règles local reste actif.
+## Docker et Render
 
-Les contrôles physiques, le téléversement de mission et l’écriture de télémétrie ne sont pas exposés par l’API web. Toute action d’ingénierie exige une validation humaine indépendante.
+`docker build -t aeromind . && docker run --env-file .env -p 10000:10000 aeromind`. Le `render.yaml` déclare le service Docker, PostgreSQL et les références de secrets. Vérifier/définir dans Render les origines et hôtes exacts du domaine réel ainsi que les paramètres OIDC et le redirect URI avant déploiement. Le déploiement réel n’est pas exécuté par ce dépôt/agent.
+
+## CI et contrôles
+
+GitHub Actions exécute les migrations sur PostgreSQL éphémère, pytest, les tests et le typage frontend ainsi que le build Docker. Localement : `pytest -q`, puis `cd frontend && pnpm run check && pnpm test -- --run && pnpm run build`.
+
+## Vérification Compose
+
+Avec Docker Engine et Compose v2 : `make verify` construit les images, démarre PostgreSQL/API/frontend, exécute migrations, tests backend et frontend, smoke tests HTTP, puis arrête les services. La procédure de push, CI, Render, SSO et limites hardware figure dans [`RUNBOOK.md`](RUNBOOK.md). Le service ArduPilot facultatif se lance avec `docker compose --profile sitl up -d sitl`.
+
+## Sécurité matérielle
+
+Le module adaptateur `HardwareLink` fournit `MockAutopilot` et `MAVLinkLink`; il n’est chargé qu’après activation serveur du feature flag. `HARDWARE_CONTROL=false` par défaut. Même flag actif, le passage au matériel exige deux confirmations distinctes, une geofence serveur configurée, une liaison MAVLink et une confirmation explicite par session. Arrêt d’urgence purge la file et demande le désarmement. Le SITL reste virtuel; le code n’est pas une certification de sécurité ni une preuve de fonctionnement d’un E-stop matériel. Ne pas activer sur un aéronef sans revue/autorisation d’ingénierie indépendante et essais en site contrôlé.

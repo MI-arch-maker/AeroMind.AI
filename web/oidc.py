@@ -49,9 +49,20 @@ def _settings():
     return cfg
 
 
+def _identity_email(claims: dict) -> str | None:
+    """Microsoft Entra peut exposer l’adresse sous plusieurs claims selon le tenant."""
+    for key in ('email', 'preferred_username', 'upn', 'unique_name'):
+        value = claims.get(key)
+        if isinstance(value, str) and '@' in value:
+            return value.strip().casefold()
+    return None
+
+
 def _cookie_security() -> dict[str, object]:
-    secure = get_settings().environment == 'production'
-    return {'httponly': True, 'secure': secure, 'samesite': 'lax', 'path': '/'}
+    # Le Preview public est HTTPS et embarqué dans un iframe cross-site.
+    # Le développement local reste compatible HTTP.
+    secure = get_settings().environment != 'development'
+    return {'httponly': True, 'secure': secure, 'samesite': 'none' if secure else 'lax', 'path': '/'}
 
 
 @router.get('/status')
@@ -125,10 +136,11 @@ async def callback(code: str, state: str, aeromind_oidc_state: str | None = Cook
         tokens = token_response.json()
         signing_key = jwt.PyJWKClient(discovery['jwks_uri']).get_signing_key_from_jwt(tokens['id_token']).key
         claims = jwt.decode(tokens['id_token'], signing_key, algorithms=['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'], audience=cfg['client_id'], issuer=cfg['issuer'])
-    if claims.get('nonce') != nonce or not (claims.get('email') or claims.get('preferred_username')):
+    identity_email = _identity_email(claims)
+    if claims.get('nonce') != nonce or not identity_email:
         raise HTTPException(403, 'OIDC identity validation failed')
     response = RedirectResponse('/')
     response.delete_cookie('aeromind_oidc_state', path='/')
-    session = _signed(_b64(f"{claims.get('sub')}|{claims.get('email') or claims.get('preferred_username')}".encode()))
+    session = _signed(_b64(f"{claims.get('sub')}|{identity_email}".encode()))
     response.set_cookie('aeromind_session', session, max_age=28800, **_cookie_security())
     return response

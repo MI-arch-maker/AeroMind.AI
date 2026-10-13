@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from .config import get_settings
 
 _LOCK = threading.RLock()
 _DATA_DIR = Path('data')
@@ -42,14 +43,34 @@ def _event(event_type: str, actor: dict[str, Any], target_id: str | None, payloa
     }
 
 
+def _accounts_with_primary_admin() -> list[dict[str, Any]]:
+    accounts = _load(_ACCOUNTS_FILE, [])
+    primary_email = next(iter(get_settings().superadmin_email_set), None)
+    if primary_email and not any(account.get("email", "").casefold() == primary_email for account in accounts):
+        accounts.insert(0, {
+            "id": "primary-super-admin",
+            "name": "Administrateur principal",
+            "email": primary_email,
+            "role": "super_admin",
+            "requestedRole": "super_admin",
+            "accountStatus": "active",
+            "approvalStatus": "approved",
+            "loginMethod": "external-sso",
+            "createdAt": None,
+            "lastSignedIn": None,
+            "createdBy": None,
+            "protected": True,
+        })
+    return accounts
+
 def list_accounts() -> list[dict[str, Any]]:
     with _LOCK:
-        return _load(_ACCOUNTS_FILE, [])
+        return _accounts_with_primary_admin()
 
 
 def activity() -> dict[str, Any]:
     with _LOCK:
-        accounts = _load(_ACCOUNTS_FILE, [])
+        accounts = _accounts_with_primary_admin()
         events = _load(_EVENTS_FILE, [])
         return {
             'projects': [],
@@ -134,3 +155,19 @@ def update_account(actor: dict[str, Any], account_id: str, changes: dict[str, An
         _save(_ACCOUNTS_FILE, accounts)
         _save(_EVENTS_FILE, events)
         return account
+
+
+def delete_account(actor: dict[str, Any], account_id: str) -> dict[str, Any]:
+    with _LOCK:
+        accounts = _load(_ACCOUNTS_FILE, [])
+        account = next((item for item in accounts if item.get('id') == account_id), None)
+        if not account:
+            raise KeyError('Compte introuvable')
+        if account.get('role') == 'super_admin' or account.get('email', '').casefold() in get_settings().superadmin_email_set:
+            raise ValueError('Le compte Super-Admin principal ne peut pas être supprimé')
+        accounts = [item for item in accounts if item.get('id') != account_id]
+        events = _load(_EVENTS_FILE, [])
+        events.append(_event('account.deleted', actor, account_id, {'email': account.get('email'), 'role': account.get('role')}))
+        _save(_ACCOUNTS_FILE, accounts)
+        _save(_EVENTS_FILE, events)
+        return {'id': account_id, 'deleted': True}

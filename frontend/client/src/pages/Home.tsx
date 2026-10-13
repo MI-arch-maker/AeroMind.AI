@@ -25,6 +25,9 @@ import {
 import { manufacturerPartCatalog } from "../lib/manufacturerParts";
 import { materialCatalog, materialLibrarySummary } from "../lib/materialLibrary";
 import { ParametricDronePreview } from "../components/ParametricDronePreview";
+import { PhysicalDroneModel } from "../components/PhysicalDroneModel";
+import { EngineeringDronePlate } from "../components/EngineeringDronePlate";
+import { DroneBehaviorPanel } from "../components/DroneBehaviorPanel";
 import type { MissionTelemetryFrame } from "../lib/missionBridge";
 import {
   authorizeControlCommand,
@@ -79,7 +82,7 @@ import { WorkspaceWindow } from "../components/WorkspaceWindow";
 import { DesignStudioView } from "../components/DesignStudioView";
 import LabBench from "./LabBench";
 import { IndustrialModelRegistry } from "../components/IndustrialModelRegistry";
-import type { IndustrialDroneReference } from "../lib/industrialDroneRegistry";
+import { industrialDroneRegistry, type IndustrialDroneReference } from "../lib/industrialDroneRegistry";
 import { FlightCommandDeck } from "../components/FlightCommandDeck";
 import {
   canLaunchMission,
@@ -138,6 +141,7 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Search,
   Sparkles,
   Wind,
   Video,
@@ -175,6 +179,39 @@ import {
 } from "../lib/aeroEngine";
 
 const APP_VERSION = "18.27.0";
+
+/** Profil canonique partagé par la bibliothèque et tous les postes 3D. */
+function industrialReferenceToDesign(reference: IndustrialDroneReference): DroneCatalogDesign {
+  const key = reference.architecture === "multirotor" ? "quadcopter" : reference.architecture;
+  const modelType = reference.architecture === "fixed-wing" ? "voilure-conventionnelle" : reference.architecture === "vtol" ? "tiltrotor" : "ducted-fan";
+  return {
+    id: reference.id,
+    key,
+    modelType,
+    label: reference.model,
+    family: reference.family,
+    mission: reference.mission,
+    specs: `${reference.dimensions} · ${reference.payload}`,
+    disciplines: "Référence industrielle · intégration · qualification",
+    tone: "cyan",
+    role: "civil",
+    defenseUse: "Plateforme civile non armée ; intégration et qualification humaine obligatoires.",
+    origin: "prototype-reference",
+    configuration: {
+      ...reference.configuration,
+      airframe: key,
+      modelType,
+      designName: `${reference.manufacturer} ${reference.model}`,
+    },
+  };
+}
+
+const allDroneProfiles = [
+  ...droneCatalog,
+  ...industrialDroneRegistry.map(industrialReferenceToDesign),
+];
+const findDroneProfile = (id?: string) =>
+  id ? allDroneProfiles.find(item => item.id === id) : undefined;
 
 const DEFAULT_MISSION_BRIEF =
   "Inspection d’une ligne électrique sur 18 km, capteur stabilisé, retour supervisé.";
@@ -428,7 +465,7 @@ const normalizeConcept = (config: ConceptConfig): ConceptConfig => ({
   airframe: config.airframe,
   modelType:
     config.modelType ??
-    droneCatalog.find(item => item.id === config.platformProfile)?.modelType,
+    findDroneProfile(config.platformProfile)?.modelType,
   motorCount: config.motorCount,
   designName: config.designName ?? "Projet vierge — saisie humaine requise",
 });
@@ -686,6 +723,7 @@ function DroneBlueprint({
       data-wingspan={config.wingspan}
       data-motor-count={motors}
     >
+      <div className="blueprint-grid" />
       <div
         className="blueprint-frame"
         style={{
@@ -1033,7 +1071,7 @@ function ConceptCanvas({
           transform: `scale(${scale}) rotateX(${rotationX}deg) rotateY(${rotationY}deg) rotateZ(${rotation / 5}deg)`,
         }}
       >
-        <div className="flight-grid" />
+        <div className="flight-grid" aria-hidden="true" />
         {!config.airframe && (
           <div className="empty-canvas-state">
             <Box size={28} />
@@ -1044,9 +1082,13 @@ function ConceptCanvas({
             </span>
           </div>
         )}
-        {activeCatalogDesign ? (
-          <div className="tools-catalog-preview">
-            <ParametricDronePreview design={activeCatalogDesign} />
+        {config.airframe && (activeCatalogDesign ? (
+          <div className="tools-catalog-preview tools-catalog-preview-3d">
+            <EngineeringDronePlate
+              design={activeCatalogDesign}
+              status="flying"
+              construction={{ parts: config.installedMaterials?.length ?? 0, massKg: config.constructionMassKg ?? 0 }}
+            />
             <span className="engineering-sync-label">
               MORPHOLOGIE ACTIVE ·{" "}
               {(activeCatalogDesign.modelType ?? "architecture").toUpperCase()}{" "}
@@ -1059,7 +1101,7 @@ function ConceptCanvas({
             selected={selected}
             onSelect={onSelect}
           />
-        )}
+        ))}
         <svg
           viewBox="0 0 760 390"
           role="img"
@@ -1453,7 +1495,10 @@ function EngineeringConceptPreview({ config }: { config: ConceptConfig }) {
       </div>
     );
   }
-  const airframe = config.airframe ?? "fixed-wing";
+  if (!config.airframe) {
+    return <div className="engineering-concept-preview engineering-unselected" role="status"><Box size={28} /><strong>Aucun drone actif</strong><span>Sélectionnez une architecture dans la Bibliothèque avant toute visualisation.</span></div>;
+  }
+  const airframe = config.airframe;
   const isQuad = airframe === "quadcopter";
   const isVtol = airframe === "vtol";
   const profileName =
@@ -1475,12 +1520,21 @@ function EngineeringConceptPreview({ config }: { config: ConceptConfig }) {
             <stop offset="0" stopColor="#b9e8e2" />
             <stop offset="1" stopColor="#2b7780" />
           </linearGradient>
-          <radialGradient id="engineering-physical-backdrop" cx="50%" cy="45%" r="72%">
-            <stop offset="0" stopColor="#173b42" />
-            <stop offset="1" stopColor="#041218" />
-          </radialGradient>
+          <pattern
+            id="engineering-grid"
+            width="32"
+            height="32"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M32 0H0V32"
+              fill="none"
+              stroke="rgba(117,226,220,.11)"
+              strokeWidth="1"
+            />
+          </pattern>
         </defs>
-        <rect width="640" height="300" fill="url(#engineering-physical-backdrop)" />
+        <rect width="640" height="300" fill="url(#engineering-grid)" />
         <ellipse
           cx="320"
           cy="218"
@@ -1488,6 +1542,8 @@ function EngineeringConceptPreview({ config }: { config: ConceptConfig }) {
           ry="28"
           fill="rgba(117,226,220,.08)"
         />
+        <line x1="44" y1="150" x2="596" y2="150" className="engineering-axis" />
+        <line x1="320" y1="42" x2="320" y2="254" className="engineering-axis" />
         {isQuad ? (
           <g className="engineering-model" transform="translate(320 145)">
             <path
@@ -1621,7 +1677,7 @@ function Overview({
   );
   const configured = Boolean(config.airframe);
   const selectedLibraryProfile = config.platformProfile
-    ? droneCatalog.find(item => item.id === config.platformProfile)
+    ? findDroneProfile(config.platformProfile)
     : undefined;
   const checklistItems = selectedLibraryProfile
     ? [
@@ -1679,538 +1735,20 @@ function Overview({
     Math.max(0, Math.min(100, (simulation.enduranceH / 2.5) * 100))
   );
   return (
-    <>
-      <div className="hero-row">
-        <div>
-          <p className="eyebrow">
-            MISSION CONTROL <span className="live-dot" /> LIVE WORKSPACE
-          </p>
-          <h1>
-            Ingénierie traçable,
-            <br />
-            <em>décisions sous contrôle.</em>
-          </h1>
-          <p className="hero-copy">
-            AeroMind relie exigences, calculs et raisonnement IA pour
-            transformer une intention de mission en décision d’ingénierie
-            traçable.
-          </p>
-        </div>
-        <div className="hero-actions">
-          <button className="secondary-button" onClick={() => onView("report")}>
-            <FileBarChart size={16} /> Ouvrir le rapport
-          </button>
-          <button
-            className="primary-button"
-            onClick={onRunSimulation}
-            disabled={isRunning || !configured}
-          >
-            {isRunning ? (
-              <RefreshCw size={16} className="spin" />
-            ) : (
-              <Play size={16} fill="currentColor" />
-            )}{" "}
-            {isRunning
-              ? "Calcul en cours"
-              : configured
-                ? "Lancer la simulation"
-                : "Saisie requise"}
-          </button>
-        </div>
+    <div className="operations-readiness-center">
+      <section className="orc-topbar"><div className="orc-brand"><span className="orc-signal" /> AEROMIND / ORC-01 <b>ENGINEERING CONTROL</b></div><div className="orc-topbar-state"><span>LOCAL DATA PLANE</span><strong>{hasProject ? "PROJECT OPEN" : "NO PROJECT"}</strong><span className="orc-human"><ShieldCheck size={12} /> HUMAN AUTHORITY</span></div></section>
+      <section className="orc-titlebar"><div><p className="eyebrow">OPERATIONS READINESS CENTER · DEFENSIVE ENGINEERING</p><h1>Situation technique <em>et décision.</em></h1><p>Poste de supervision compact pour suivre les entrées, la conformité et les risques sans créer ni activer de drone automatiquement.</p></div><div className="orc-actions"><button className="secondary-button" onClick={() => onView("report")}><FileBarChart size={14} /> Export revue</button><button className="primary-button" onClick={onRunSimulation} disabled={isRunning || !configured}>{isRunning ? <RefreshCw size={14} className="spin" /> : <Play size={14} fill="currentColor" />} {isRunning ? "Calcul" : configured ? "Calculer" : "Saisie requise"}</button></div></section>
+      <section className="orc-readiness-strip"><div className="orc-readiness-primary"><span className="eyebrow">READINESS INDEX</span><strong>{configured ? "82" : "—"}<small>{configured ? "%" : ""}</small></strong><em>{configured ? "PRELIMINARY" : "NO ACTIVE CONFIGURATION"}</em></div><div><small>ARCHITECTURE</small><b>{selectedLibraryProfile?.label ?? "NON SÉLECTIONNÉE"}</b><span>{selectedLibraryProfile?.family ?? "Action humaine requise"}</span></div><div><small>CONFORMITÉ</small><b>{configured ? `${requirementProgress}%` : "—"}</b><span>{visibleRequirements.length} exigence(s) visible(s)</span></div><div><small>RISQUES</small><b>{configured ? String(riskCount).padStart(2, "0") : "—"}</b><span>{configured ? "Revue calculée" : "Pas de calcul"}</span></div><div><small>SIMULATION</small><b className={configured ? "orc-green" : "orc-amber"}>{configured ? "READY" : "LOCKED"}</b><span>Gouvernance humaine</span></div></section>
+      <div className="orc-main-grid">
+        <aside className="orc-panel orc-mission-panel"><div className="orc-panel-head"><div><p className="eyebrow">MISSION / READINESS</p><h2>Préparation opérationnelle</h2></div><span className="orc-state-pill is-locked">HUMAN INPUT</span></div><div className="orc-mission-block"><small>MISSION ACTIVE</small><b>{hasProject ? project.name : "Non définie"}</b><span>{selectedLibraryProfile?.mission ?? "Aucune intention de mission fournie."}</span></div><div className="orc-readiness-list"><div><span>Brief utilisateur</span><b className={hasProject ? "orc-green" : "orc-amber"}>{hasProject ? "READY" : "WAITING"}</b></div><div><span>Données cellule</span><b className={selectedLibraryProfile ? "orc-green" : "orc-amber"}>{selectedLibraryProfile ? "SYNCED" : "WAITING"}</b></div><div><span>Exigences</span><b>{visibleRequirements.length ? `${requirementProgress}%` : "—"}</b></div><div><span>Checklist humaine</span><b>{checklistItems.length ? `${checklistCompleted}/${checklistItems.length}` : "—"}</b></div></div><div className="orc-mission-gates"><span>01 BRIEF</span><span>02 CELLULE</span><span>03 CRITÈRES</span><span>04 REVUE</span></div><button className="panel-link" onClick={() => onView(hasProject ? "requirements" : "catalog")}>{hasProject ? "Ouvrir les exigences" : "Choisir une architecture"} <ArrowRight size={14} /></button></aside>
+        <section className="orc-panel orc-asset-panel"><div className="orc-panel-head"><div><p className="eyebrow">ASSET CONTROL / AIRFRAME</p><h2>{selectedLibraryProfile?.label ?? "Aucun actif"}</h2></div><span className={`orc-state-pill ${selectedLibraryProfile ? "is-ready" : "is-locked"}`}>{selectedLibraryProfile ? "SYNCED" : "LOCKED"}</span></div>{selectedLibraryProfile ? <div className="orc-asset-visual"><ParametricDronePreview design={selectedLibraryProfile} /><span>PARAMETRIC PREVIEW · USER SELECTED</span></div> : <div className="orc-empty-asset"><Box size={26} /><strong>Aucune cellule active</strong><span>Choisissez une architecture dans la Bibliothèque avant toute visualisation.</span><em>NO DEFAULT DATA</em></div>}<div className="orc-asset-meta"><span><small>MISSION</small><b>{selectedLibraryProfile?.mission ?? "Non définie"}</b></span><span><small>PROFIL</small><b>{selectedLibraryProfile?.id ?? "—"}</b></span></div><button className="panel-link" onClick={() => onView("catalog")}>Ouvrir la bibliothèque <ArrowRight size={14} /></button></section>
+        <section className="orc-panel orc-telemetry-panel"><div className="orc-panel-head"><div><p className="eyebrow">TELEMETRY / ENGINEERING STREAM</p><h2>Flux de calcul local</h2></div><span className="orc-stream"><i /> 20 Hz · READ ONLY</span></div><div className="orc-chart"><div className="orc-chart-grid" /><svg viewBox="0 0 600 210" preserveAspectRatio="none"><polyline className="orc-line-cyan" points="0,174 32,166 62,171 92,110 121,134 151,87 180,112 212,59 242,101 272,77 304,116 335,63 366,93 395,75 426,112 457,46 487,88 520,67 553,91 600,38" /><polyline className="orc-line-amber" points="0,186 40,180 80,183 120,173 160,178 200,161 240,169 280,151 320,159 360,143 400,153 440,132 480,141 520,119 560,128 600,106" /></svg><div className="orc-axis-labels"><span>t−60 s</span><span>t−30 s</span><span>NOW</span></div></div><div className="orc-chart-legend"><span><i className="orc-key-cyan" /> stress structurel</span><span><i className="orc-key-amber" /> énergie disponible</span><b>{configured ? "CALCULATION PRELIMINARY" : "NO DATA INJECTED"}</b></div><div className="orc-metric-row"><div><small>MASSE</small><b>{configured ? `${formatNumber(simulation.totalMassKg)} kg` : "—"}</b></div><div><small>AUTONOMIE</small><b>{configured ? `${formatNumber(simulation.enduranceH)} h` : "—"}</b></div><div><small>VENT</small><b>{configured ? `${formatNumber(simulation.windMarginPercent, 0)}%` : "—"}</b></div></div></section>
+        <aside className="orc-panel orc-gates-panel"><div className="orc-panel-head"><div><p className="eyebrow">REVIEW GATES</p><h2>Gates de décision</h2></div><ShieldCheck size={17} className="orc-cyan" /></div><div className="orc-gate-list"><div className={hasProject ? "is-ok" : "is-waiting"}><span>01</span><b>Brief mission</b><em>{hasProject ? "READY" : "WAITING"}</em></div><div className={selectedLibraryProfile ? "is-ok" : "is-waiting"}><span>02</span><b>Architecture</b><em>{selectedLibraryProfile ? "SYNCED" : "WAITING"}</em></div><div className={visibleRequirements.length ? "is-review" : "is-waiting"}><span>03</span><b>Exigences</b><em>{visibleRequirements.length ? `${requirementProgress}%` : "WAITING"}</em></div><div className={configured ? "is-review" : "is-waiting"}><span>04</span><b>Simulation</b><em>{configured ? "READY" : "LOCKED"}</em></div><div className="is-waiting"><span>05</span><b>Revue humaine</b><em>REQUIRED</em></div><div className="is-waiting"><span>06</span><b>Export décision</b><em>LOCKED</em></div></div><div className="orc-gate-note"><Info size={14} /><span>Chaque gate doit être validé par l’opérateur. Aucun passage automatique.</span></div></aside><aside className="orc-panel orc-decision-panel"><div className="orc-panel-head"><div><p className="eyebrow">DECISION SUPPORT</p><h2>État plateforme</h2></div><Info size={17} className="orc-cyan" /></div><div className="orc-decision-kpis"><div><small>MASSE</small><b>{configured ? `${formatNumber(simulation.totalMassKg)} kg` : "—"}</b></div><div><small>AUTONOMIE</small><b>{configured ? `${formatNumber(simulation.enduranceH)} h` : "—"}</b></div><div><small>VENT</small><b>{configured ? `${formatNumber(simulation.windMarginPercent, 0)}%` : "—"}</b></div></div><div className="orc-alerts"><p className="eyebrow">ALERTES DE CONCEPTION</p>{!selectedLibraryProfile && <div><span className="orc-alert-dot" /> Architecture absente <em>BLOCKED</em></div>}{!visibleRequirements.length && <div><span className="orc-alert-dot" /> Exigences non renseignées <em>WAITING</em></div>}{selectedLibraryProfile && visibleRequirements.length && <div className="is-ok"><span className="orc-alert-dot" /> Données prêtes pour revue <em>REVIEW</em></div>}</div><div className="orc-recommendation"><small>RECOMMANDATION À VALIDER</small><span>{configured ? "Vérifier les hypothèses avant tout calcul." : "Sélectionnez une architecture et fournissez les données requises."}</span></div></aside>
       </div>
-      <section
-        className="overview-flow"
-        aria-label="Parcours de préparation du projet"
-      >
-        <div className="overview-flow-heading">
-          <div>
-            <p className="eyebrow">PARCOURS DE PRÉPARATION</p>
-            <h2>Du brief à la revue technique</h2>
-          </div>
-          <span className="overview-flow-count">03 ÉTAPES</span>
-        </div>
-        <div className="overview-flow-steps">
-          <button
-            className={`overview-step ${hasProject ? "is-complete" : "is-current"}`}
-            onClick={
-              hasProject ? () => onView("requirements") : onCreateProject
-            }
-          >
-            <span className="overview-step-index">
-              {hasProject ? <Check size={15} /> : "01"}
-            </span>
-            <span className="overview-step-copy">
-              <strong>{hasProject ? "Projet créé" : "Créer un projet"}</strong>
-              <small>
-                {hasProject
-                  ? "Définir ou affiner la mission"
-                  : "Démarrer un espace de travail"}
-              </small>
-            </span>
-            <ArrowRight size={15} className="overview-step-arrow" />
-          </button>
-          <button
-            className={`overview-step ${configured ? "is-complete" : hasProject ? "is-current" : ""}`}
-            onClick={() => onView(configured ? "concept" : "catalog")}
-          >
-            <span className="overview-step-index">
-              {configured ? <Check size={15} /> : "02"}
-            </span>
-            <span className="overview-step-copy">
-              <strong>
-                {configured ? "Architecture prête" : "Choisir une architecture"}
-              </strong>
-              <small>
-                {configured
-                  ? "Ouvrir le modèle paramétrique"
-                  : "Comparer les plateformes disponibles"}
-              </small>
-            </span>
-            <ArrowRight size={15} className="overview-step-arrow" />
-          </button>
-          <button
-            className={`overview-step ${configured ? "is-current" : ""}`}
-            onClick={() => onView(configured ? "simulation" : "requirements")}
-          >
-            <span className="overview-step-index">03</span>
-            <span className="overview-step-copy">
-              <strong>Vérifier & simuler</strong>
-              <small>
-                {configured
-                  ? "Examiner les marges et les risques"
-                  : "Tracer les critères de mission"}
-              </small>
-            </span>
-            <ArrowRight size={15} className="overview-step-arrow" />
-          </button>
-        </div>
-      </section>
-      <div className="metric-grid">
-        <MetricCard
-          icon={Package}
-          label="Masse au décollage"
-          value={configured ? formatNumber(simulation.totalMassKg) : "—"}
-          unit={configured ? "kg" : ""}
-          detail={
-            configured
-              ? `Cible ≤ ${formatNumber(config.maxTakeoffKg)} kg`
-              : "Aucune donnée humaine"
-          }
-          tone={
-            configured && simulation.totalMassKg > config.maxTakeoffKg
-              ? "coral"
-              : "cyan"
-          }
-          progress={
-            configured
-              ? Math.round((simulation.totalMassKg / config.maxTakeoffKg) * 100)
-              : 0
-          }
-        />
-        <MetricCard
-          icon={BatteryCharging}
-          label="Autonomie estimée"
-          value={configured ? formatNumber(simulation.enduranceH) : "—"}
-          unit={configured ? "h" : ""}
-          detail={
-            configured ? "Cible ≥ 2,5 h" : "En attente d’une architecture"
-          }
-          tone={configured && simulation.enduranceH >= 2.5 ? "green" : "amber"}
-          progress={configured ? energyProgress : 0}
-        />
-        <MetricCard
-          icon={Wind}
-          label="Marge au vent"
-          value={
-            configured ? formatNumber(simulation.windMarginPercent, 0) : "—"
-          }
-          unit={configured ? "%" : ""}
-          detail={
-            configured
-              ? `Référence ${config.windSpeedKmh} km/h`
-              : "Vent non renseigné"
-          }
-          tone="cyan"
-          progress={configured ? simulation.windMarginPercent : 0}
-        />
-        <MetricCard
-          icon={AlertTriangle}
-          label="Risques ouverts"
-          value={String(riskCount).padStart(2, "0")}
-          detail="Revue de conception requise"
-          tone={riskCount > 2 ? "amber" : "green"}
-        />
-      </div>
-      <div className="dashboard-grid">
-        <section className="panel concept-panel overview-project-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">ESPACE PROJET / CONFIGURATION</p>
-              <h3>{selectedLibraryProfile?.label ?? project.name}</h3>
-            </div>
-            <button
-              className="text-button"
-              onClick={() =>
-                onView(selectedLibraryProfile ? "concept" : "catalog")
-              }
-            >
-              {selectedLibraryProfile
-                ? "Ouvrir le constructeur"
-                : "Choisir dans la bibliothèque"}{" "}
-              <ArrowRight size={14} />
-            </button>
-          </div>
-          <div className="overview-config-console">
-            <div className="overview-config-console-head">
-              <span>
-                <span className="live-dot" /> CONFIGURATION WORKSPACE
-              </span>
-              <small>{configured ? "PROFIL ACTIF" : "MODE EXPLORATION"}</small>
-            </div>
-            <div className="overview-config-console-body">
-              <div
-                className="overview-config-orbit"
-                aria-label="Aperçu technique de l’architecture"
-              >
-                <svg
-                  className="overview-config-blueprint"
-                  viewBox="0 0 220 132"
-                  role="img"
-                  aria-label="Schéma paramétrique d’une architecture"
-                >
-                  <defs>
-                    <linearGradient id="blueprintStroke" x1="0" x2="1">
-                      <stop offset="0" stopColor="#75e2dc" />
-                      <stop offset="1" stopColor="#b39be8" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M18 66h184M110 15v102" className="blueprint-axis" />
-                  <ellipse
-                    cx="110"
-                    cy="66"
-                    rx="78"
-                    ry="25"
-                    className="blueprint-orbit"
-                  />
-                  <path
-                    d="M45 66 72 51l38-10 38 10 27 15-27 15-38 10-38-10Z"
-                    className="blueprint-frame"
-                  />
-                  <path
-                    d="M72 51 110 66l38-15M72 81l38-15 38 15M110 41v50"
-                    className="blueprint-detail"
-                  />
-                  <circle cx="110" cy="66" r="5" className="blueprint-core" />
-                  <text
-                    x="110"
-                    y="126"
-                    textAnchor="middle"
-                    className="blueprint-label"
-                  >
-                    PARAMETRIC CORE · SI UNITS
-                  </text>
-                </svg>
-                <span className="blueprint-index">
-                  {configured ? "ARCH" : "00"}
-                </span>
-              </div>
-              <div className="overview-config-summary">
-                <p className="eyebrow">ÉTAT DE L’ARCHITECTURE</p>
-                <h4>
-                  {configured
-                    ? `${selectedLibraryProfile?.label ?? "Architecture personnalisée"}`
-                    : "Aucune plateforme verrouillée"}
-                </h4>
-                <p>
-                  {configured
-                    ? "Les paramètres du profil, les exigences et la simulation sont reliés au même état de projet."
-                    : "La console est prête. Définissez une intention, créez un projet ou explorez la bibliothèque sans bloquer la simulation locale."}
-                </p>
-                <div className="overview-config-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => onView(configured ? "concept" : "catalog")}
-                  >
-                    <Package size={14} />{" "}
-                    {configured
-                      ? "Ouvrir l’architecture"
-                      : "Explorer les profils"}
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={() => onView("simulation")}
-                  >
-                    <Activity size={14} /> Voir la simulation
-                  </button>
-                </div>
-              </div>
-              <div className="overview-config-status">
-                <div>
-                  <span>PROFIL</span>
-                  <strong>{configured ? "ACTIF" : "EN ATTENTE"}</strong>
-                </div>
-                <div>
-                  <span>EXIGENCES</span>
-                  <strong>
-                    {visibleRequirements.length
-                      ? `${requirementProgress}%`
-                      : "PRÊTES"}
-                  </strong>
-                </div>
-                <div>
-                  <span>SYNC</span>
-                  <strong>LOCAL</strong>
-                </div>
-              </div>
-            </div>
-            <div className="overview-config-flow">
-              <span className="is-active">01 Brief</span>
-              <i />
-              <span className={configured ? "is-active" : ""}>
-                02 Architecture
-              </span>
-              <i />
-              <span className={visibleRequirements.length ? "is-active" : ""}>
-                03 Exigences
-              </span>
-              <i />
-              <span>04 Simulation</span>
-            </div>
-          </div>
-          {selectedLibraryProfile ? (
-            <div className="overview-project-configured">
-              <div className="overview-project-visual">
-                <ParametricDronePreview design={selectedLibraryProfile} />
-                <div className="overview-visual-caption">
-                  <span>
-                    <span className="live-dot" /> VISUEL SYNCHRONISÉ
-                  </span>
-                  <strong>
-                    {selectedLibraryProfile.label} ·{" "}
-                    {selectedLibraryProfile.modelType}
-                  </strong>
-                </div>
-              </div>
-              <div className="overview-project-details">
-                <div className="overview-project-facts">
-                  <div>
-                    <span>MISSION</span>
-                    <strong>{selectedLibraryProfile.mission}</strong>
-                  </div>
-                  <div>
-                    <span>IDENTIFIANT / FAMILLE</span>
-                    <strong>
-                      {selectedLibraryProfile.id} ·{" "}
-                      {selectedLibraryProfile.family}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>DONNÉES</span>
-                    <strong>
-                      Profil bibliothèque actif ·{" "}
-                      {selectedLibraryProfile.origin === "prototype-reference"
-                        ? "référence"
-                        : "paramétrique"}
-                    </strong>
-                  </div>
-                </div>
-                <div
-                  className="overview-checklist"
-                  aria-label={`Checklist ${selectedLibraryProfile.label}`}
-                >
-                  <div className="overview-checklist-heading">
-                    <div>
-                      <span className="eyebrow">PRÉPARATION DU MODÈLE</span>
-                      <strong>Checklist de configuration</strong>
-                    </div>
-                    <span className="overview-checklist-count">
-                      {checklistCompleted}/{checklistItems.length}
-                    </span>
-                  </div>
-                  <div className="overview-checklist-list">
-                    {checklistItems.map(item => {
-                      const checked = item.automatic || checklistState[item.id];
-                      return (
-                        <label
-                          className={`overview-checklist-item ${checked ? "is-checked" : ""}`}
-                          key={item.id}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Boolean(checked)}
-                            disabled={item.automatic}
-                            onChange={() =>
-                              setChecklistState(current => ({
-                                ...current,
-                                [item.id]: !current[item.id],
-                              }))
-                            }
-                          />
-                          <span className="overview-checklist-box">
-                            {checked && <Check size={12} />}
-                          </span>
-                          <span>
-                            <strong>{item.label}</strong>
-                            <small>{item.detail}</small>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="overview-project-neutral overview-project-neutral-compact">
-              <div className="concept-stamp">
-                <ClipboardCheck size={15} /> CONSOLE PRÊTE · SÉLECTION
-                OPTIONNELLE
-              </div>
-              <div className="overview-project-facts">
-                <div>
-                  <span>MISSION</span>
-                  <strong>{project.mission || "Brief à définir"}</strong>
-                </div>
-                <div>
-                  <span>PROFIL</span>
-                  <strong>Aucun profil verrouillé</strong>
-                </div>
-                <div>
-                  <span>DONNÉES</span>
-                  <strong>
-                    {hasProject ? "Projet utilisateur" : "Espace vierge local"}
-                  </strong>
-                </div>
-              </div>
-              <p className="section-description">
-                Choisissez une plateforme dans la Bibliothèque drones pour
-                afficher ici son visuel paramétrique, ses caractéristiques et la
-                checklist de configuration associée.
-              </p>
-            </div>
-          )}
-        </section>
-        <section className="panel activity-panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">REVUE DE CONCEPTION · DONNÉES DU MODÈLE</p>
-              <h3>Registre des risques</h3>
-            </div>
-            <button
-              className="icon-button"
-              aria-label="Ouvrir la traçabilité"
-              onClick={() => onView("simulation")}
-            >
-              <MoreHorizontal size={16} />
-            </button>
-          </div>
-          <div className="activity-list">
-            {configured && simulation.risks.length ? (
-              simulation.risks
-                .slice(0, 4)
-                .map(risk => (
-                  <ActivityRow
-                    key={risk.id}
-                    icon={
-                      risk.status === "controlled" ? (
-                        <CheckCircle2 />
-                      ) : (
-                        <AlertTriangle />
-                      )
-                    }
-                    tone={
-                      risk.severity === "high"
-                        ? "amber"
-                        : risk.status === "controlled"
-                          ? "green"
-                          : "cyan"
-                    }
-                    title={risk.label}
-                    meta={`${risk.severity.toUpperCase()} · ${risk.status === "controlled" ? "contrôlé" : risk.status === "monitoring" ? "surveillé" : "ouvert"} · ${risk.probability}`}
-                  />
-                ))
-            ) : (
-              <div className="activity-row">
-                <span className="activity-icon activity-cyan">
-                  <Info size={15} />
-                </span>
-                <div>
-                  <strong>
-                    {configured
-                      ? "Aucun risque calculé"
-                      : "Aucune architecture sélectionnée"}
-                  </strong>
-                  <span>
-                    {configured
-                      ? "Relancez le calcul pour actualiser la revue."
-                      : "Chargez une architecture pour établir le registre."}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-          <button className="panel-link" onClick={() => onView("simulation")}>
-            Voir toute la traçabilité <ArrowRight size={14} />
-          </button>
-        </section>
-      </div>
-      <div className="lower-grid">
-        <section className="panel requirements-preview">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">CYCLE DE VALIDATION</p>
-              <h3>Exigences critiques</h3>
-            </div>
-            <button
-              className="text-button"
-              onClick={() => onView("requirements")}
-            >
-              Voir les exigences <ArrowRight size={14} />
-            </button>
-          </div>
-          <div className="requirement-progress">
-            <div className="progress-ring">
-              <span>
-                {satisfiedRequirements}
-                <small>/{visibleRequirements.length}</small>
-              </span>
-            </div>
-            <div>
-              <strong>
-                {visibleRequirements.length
-                  ? `${satisfiedRequirements} exigence(s) satisfaite(s)`
-                  : "Aucune exigence définie"}
-              </strong>
-              <p>
-                {visibleRequirements.length
-                  ? `${unresolvedRequirements} à vérifier ou à résoudre · progression calculée sur les exigences visibles.`
-                  : "Ajoutez vos critères de mission pour commencer la revue."}
-              </p>
-              <div className="segmented-progress">
-                <span
-                  className="seg-green"
-                  style={{ width: `${requirementProgress}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-        <section className="panel trust-panel">
-          <div className="trust-icon">
-            <ShieldCheck size={20} />
-          </div>
-          <div>
-            <p className="eyebrow">GARDE-FOU DE CONCEPTION</p>
-            <h3>Simulation explicitement qualifiée</h3>
-            <p>
-              Les chiffres ci-dessus sont des estimations préliminaires. Ils ne
-              remplacent ni CFD, ni essais, ni certification.
-            </p>
-          </div>
-          <Info size={17} className="muted-icon" />
-        </section>
-      </div>
-    </>
+      <section className="orc-panel orc-activity-panel"><div className="orc-panel-head"><div><p className="eyebrow">ACTIVITY / EVIDENCE TIMELINE</p><h2>Journal de traçabilité local</h2></div><span className="orc-stream"><i /> READ ONLY</span></div><div className="orc-timeline"><div><b>01</b><span>Profil d’architecture</span><em>{selectedLibraryProfile ? "Chargé par l’utilisateur" : "En attente d’un choix humain"}</em></div><div><b>02</b><span>Configuration et masse</span><em>{configured ? "Données calculables" : "Aucune donnée injectée"}</em></div><div><b>03</b><span>Exigences et conformité</span><em>{visibleRequirements.length ? `${satisfiedRequirements}/${visibleRequirements.length} satisfaites` : "À renseigner"}</em></div><div><b>04</b><span>Simulation locale</span><em>{configured ? "Revue requise" : "Verrouillée"}</em></div></div></section>
+      <div className="orc-lower-grid"><section className="orc-panel orc-risk-panel"><div className="orc-panel-head"><div><p className="eyebrow">SAFETY CASE / RISK REGISTER</p><h2>Registre de risques</h2></div><button className="text-button" onClick={() => onView("simulation")}>Détails <ArrowRight size={13} /></button></div>{configured && simulation.risks.length ? <div className="orc-risk-table">{simulation.risks.slice(0, 5).map(risk => <div key={risk.id}><span className={`orc-severity severity-${risk.severity}`} /> <b>{risk.label}</b><small>{risk.probability}</small><em>{risk.status.toUpperCase()}</em></div>)}</div> : <div className="orc-empty-row"><Info size={15} /> {configured ? "Aucun risque calculé." : "Aucune architecture sélectionnée : le registre reste vide."}</div>}</section><section className="orc-panel orc-compliance-panel"><div className="orc-panel-head"><div><p className="eyebrow">REQUIREMENTS / TRACEABILITY</p><h2>Conformité</h2></div><button className="text-button" onClick={() => onView("requirements")}>Ouvrir <ArrowRight size={13} /></button></div><div className="orc-compliance-body"><div className="orc-compliance-ring"><strong>{configured ? requirementProgress : "—"}<small>{configured ? "%" : ""}</small></strong></div><div><b>{visibleRequirements.length ? `${satisfiedRequirements} / ${visibleRequirements.length} exigences satisfaites` : "Aucune exigence définie"}</b><span>{visibleRequirements.length ? `${unresolvedRequirements} à vérifier · sources conservées` : "Les valeurs seront introduites par l’utilisateur."}</span><div className="orc-progress"><i style={{ width: `${requirementProgress}%` }} /></div></div></div></section></div>
+      <footer className="orc-footer"><span><ShieldCheck size={13} /> HUMAN REVIEW REQUIRED</span><span>DONNÉES PRÉLIMINAIRES · NON CERTIFIÉES</span><span>AEROMIND / ORC-01</span></footer>
+    </div>
   );
 }
 function RequirementsView({
@@ -2249,11 +1787,22 @@ function RequirementsView({
   const hiddenCount =
     requirements.length -
     requirements.filter(item => item.visible !== false).length;
+  const requirementStats = {
+    total: visibleRequirements.length,
+    ok: visibleRequirements.filter(item => item.status === "ok").length,
+    review: visibleRequirements.filter(item => item.status === "review" || item.status === "hypothesis").length,
+    conflict: visibleRequirements.filter(item => item.status === "conflict").length,
+    approved: visibleRequirements.filter(item => item.approved).length,
+    sourced: visibleRequirements.filter(item => Boolean(item.source?.trim())).length,
+  };
+  const requirementCoverage = requirementStats.total
+    ? Math.round((requirementStats.ok / requirementStats.total) * 100)
+    : 0;
   return (
     <div className="view-stack">
       <SectionHeading
         eyebrow="01 / SPÉCIFICATIONS"
-        title="Exigences de mission"
+        title="Centre de maîtrise des exigences"
         description="Chaque exigence possède une valeur, une source et un cycle de validation contrôlables par l’équipe d’ingénierie."
         action={
           <button className="secondary-button" onClick={onAddRequirement}>
@@ -2261,6 +1810,34 @@ function RequirementsView({
           </button>
         }
       />
+      <section className="requirements-command-panel" aria-label="Synthèse de maîtrise des exigences">
+        <div className="requirements-command-heading">
+          <div><p className="eyebrow">ENGINEERING CONTROL / CONFIGURATION BASELINE</p><h3>Registre de conformité contrôlé</h3><span>Référentiel local · revue humaine obligatoire · aucune approbation automatique</span></div>
+          <div className={`requirements-command-state ${requirementStats.conflict ? "is-alert" : requirementStats.review ? "is-review" : "is-ready"}`}><i />{requirementStats.conflict ? "ACTION REQUISE" : requirementStats.review ? "REVUE EN COURS" : "BASELINE STABLE"}</div>
+        </div>
+        <div className="requirements-command-kpis">
+          <div><small>COUVERTURE</small><strong>{requirementCoverage}<em>%</em></strong><span>{requirementStats.ok}/{requirementStats.total} satisfaites</span></div>
+          <div><small>REVUE OU HYPOTHÈSE</small><strong>{String(requirementStats.review).padStart(2, "0")}</strong><span>preuve ou décision attendue</span></div>
+          <div><small>CONFLITS</small><strong className={requirementStats.conflict ? "is-alert" : ""}>{String(requirementStats.conflict).padStart(2, "0")}</strong><span>{requirementStats.conflict ? "blocage à traiter" : "aucun conflit détecté"}</span></div>
+          <div><small>TRAÇABILITÉ</small><strong>{requirementStats.sourced}/{requirementStats.total}</strong><span>{requirementStats.approved} approuvée(s) · source liée</span></div>
+        </div>
+        <div className="requirements-control-rail"><span><b>01</b> INTENTION</span><i /><span><b>02</b> CRITÈRE</span><i /><span><b>03</b> PREUVE</span><i /><span><b>04</b> REVUE</span><i /><span><b>05</b> DÉCISION HUMAINE</span></div>
+      </section>
+      <section className="requirements-dashboard panel" aria-label="Tableau de conformité des profils de mission">
+        <div className="requirements-dashboard-header">
+          <div><p className="eyebrow">DÉCISION / CONFORMITÉ</p><h3>Profils de mission</h3></div>
+          <span>{requirements.filter(item => item.status === "ok").length}/{requirements.length} satisfaites</span>
+        </div>
+        {[{ label: "Recherche & secours civils", matcher: /secours|sauvetage|balise|retour/i }, { label: "Inspection", matcher: /inspection|structure|corridor|capteur/i }].map(profile => {
+          const scoped = visibleRequirements.filter(item => profile.matcher.test(`${item.label}`));
+          const rows = scoped.length ? scoped : visibleRequirements;
+          const ok = rows.filter(item => item.status === "ok").length;
+          const review = rows.filter(item => item.status === "review" || item.status === "hypothesis").length;
+          const conflict = rows.filter(item => item.status === "conflict").length;
+          const score = rows.length ? Math.round((ok / rows.length) * 100) : 0;
+          return <div className="requirements-dashboard-row" key={profile.label}><div><strong>{profile.label}</strong><small>{ok} OK · {review} à vérifier · {conflict} conflit</small></div><div className="requirements-dashboard-track"><i className="req-ok" style={{ width: `${score}%` }} /><i className="req-review" style={{ width: `${rows.length ? Math.round((review / rows.length) * 100) : 0}%` }} /><i className="req-conflict" style={{ width: `${rows.length ? Math.round((conflict / rows.length) * 100) : 0}%` }} /></div><b>{score}%</b></div>;
+        })}
+      </section>
       <EngineeringGuide
         eyebrow="CONSOLE INGÉNIEUR / EXIGENCES"
         title="Transformer une intention en critère vérifiable"
@@ -2941,267 +2518,264 @@ function DroneCatalogView({
   onOpenTools: () => void;
   onApplyIndustrial: (reference: IndustrialDroneReference) => void;
 }) {
+  // Architecture héritée de l’ancienne URL : 56 concepts, registre industriel,
+  // comparaison et fiche détaillée. Le catalogue reste strictement sans sélection initiale.
   const catalog = droneCatalog;
-  const [comparisonIds, setComparisonIds] = useState<string[]>(() =>
-    catalog.slice(0, 2).map(item => item.id)
-  );
+  const [comparisonIds, setComparisonIds] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [query, setQuery] = useState("");
+  const selected = catalog.find(item => item.id === selectedId);
+  const visibleCatalog = catalog.filter(item => `${item.label} ${item.family} ${item.mission}`.toLowerCase().includes(query.toLowerCase()));
+  const toggleComparison = (id: string) => setComparisonIds(current => current.includes(id) ? current.filter(item => item !== id) : current.length < 2 ? [...current, id] : [current[1], id]);
   const comparison = catalog.filter(item => comparisonIds.includes(item.id));
-  const toggleComparison = (id: string) =>
-    setComparisonIds(current =>
-      current.includes(id)
-        ? current.filter(item => item !== id)
-        : current.length < 2
-          ? [...current, id]
-          : [current[1], id]
-    );
   const comparisonRows = [
-    { label: "Architecture", value: (item: DroneCatalogDesign) => item.family },
-    {
-      label: "Envergure",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.wingspan ?? "—"} m`,
-    },
-    {
-      label: "Longueur fuselage",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.fuselageLength ?? "—"} m`,
-    },
-    {
-      label: "Capacité batterie",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.batteryWh ?? "—"} Wh`,
-    },
-    {
-      label: "Charge utile déclarée",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.payloadKg ?? "—"} kg`,
-    },
-    {
-      label: "Croisière paramétrée",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.cruiseSpeedKmh ?? "—"} km/h`,
-    },
-    {
-      label: "Nombre de moteurs",
-      value: (item: DroneCatalogDesign) =>
-        `${item.configuration.motorCount ?? "—"}`,
-    },
-  ];
+    ["Architecture", (item: DroneCatalogDesign) => item.family],
+    ["Envergure", (item: DroneCatalogDesign) => `${item.configuration.wingspan ?? "—"} m`],
+    ["Longueur fuselage", (item: DroneCatalogDesign) => `${item.configuration.fuselageLength ?? "—"} m`],
+    ["Capacité batterie", (item: DroneCatalogDesign) => `${item.configuration.batteryWh ?? "—"} Wh`],
+    ["Charge utile déclarée", (item: DroneCatalogDesign) => `${item.configuration.payloadKg ?? "—"} kg`],
+    ["Croisière paramétrée", (item: DroneCatalogDesign) => `${item.configuration.cruiseSpeedKmh ?? "—"} km/h`],
+    ["Nombre de moteurs", (item: DroneCatalogDesign) => `${item.configuration.motorCount ?? "—"}`],
+  ] as const;
   return (
-    <div className="view-stack">
-      <SectionHeading
-        eyebrow="03 / BIBLIOTHÈQUE DE CONCEPTION"
-        title="Atelier de prototypes paramétriques"
-        description="56 variantes dérivées de la référence utilisateur DELUGE-E et de 20 architectures aéronautiques : ailes, rotors, hybrides, aérostats, ailes souples et concepts biomimétiques. Chaque fiche conserve sa géométrie, sa propulsion et son énergie paramétriques."
-        action={
-          <span className="calculated-badge">
-            <Box size={13} /> {catalog.length} concepts non construits
-          </span>
-        }
-      />
-      <EngineeringGuide
-        eyebrow="CONSOLE DE SÉLECTION / BIBLIOTHÈQUE"
-        title="Choisir une architecture par mission"
-        description="Comparez des variantes de structure, de charge et d’énergie. Les cartes sont des références de travail, pas des données injectées dans votre projet."
-        suggestions={[
-          "Comparer l’endurance et la charge utile",
-          "Comparer la redondance propulsion",
-          "Charger une référence puis la modifier",
-        ]}
-        onApply={() =>
-          document
-            .getElementById("catalog-comparison-title")
-            ?.scrollIntoView({ behavior: "smooth" })
-        }
-      />
+    <div className="view-stack legacy-drone-library">
+      <SectionHeading eyebrow="03 / BIBLIOTHÈQUE DE CONCEPTION" title="Atelier de prototypes paramétriques" description="56 variantes héritées de la référence utilisateur DELUGE-E et des architectures présentes dans l’ancienne bibliothèque : ailes, rotors, hybrides, aérostats, ailes souples et concepts biomimétiques. Chaque fiche conserve sa géométrie, sa propulsion et son énergie paramétriques." action={<span className="calculated-badge"><Box size={13} /> {catalog.length} concepts non construits</span>} />
+      <section className="legacy-selection-console"><div><p className="eyebrow">CONSOLE DE SÉLECTION / BIBLIOTHÈQUE</p><h3>Choisir une architecture par mission</h3><p>Comparez des variantes de structure, de charge et d’énergie. Les cartes sont des références de travail, pas des données injectées dans votre projet.</p></div><label className="legacy-catalog-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filtrer les 56 concepts…" aria-label="Filtrer les concepts paramétriques" /></label><div className="legacy-console-actions"><button type="button" onClick={() => document.getElementById("catalog-comparison-title")?.scrollIntoView({ behavior: "smooth" })}>Comparer l’endurance et la charge utile</button><button type="button" onClick={() => document.getElementById("catalog-comparison-title")?.scrollIntoView({ behavior: "smooth" })}>Comparer la redondance propulsion</button><button type="button" onClick={onOpenTools}>Charger une référence puis la modifier</button></div></section>
       <IndustrialModelRegistry onApply={onApplyIndustrial} />
-      <section
-        className="panel catalog-comparison-panel"
-        aria-labelledby="catalog-comparison-title"
-      >
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">ÉTUDE DE VARIANTES / PARAMÈTRES DÉCLARÉS</p>
-            <h3 id="catalog-comparison-title">Comparer deux concepts</h3>
-          </div>
-          <span className="calculated-badge">
-            {comparison.length} / 2 sélectionnés
-          </span>
-        </div>
-        {comparison.length === 2 ? (
-          <div className="catalog-comparison-scroll">
-            <div className="catalog-comparison-grid">
-              <div className="catalog-comparison-label">Paramètre</div>
-              {comparison.map(item => (
-                <strong key={item.id} className="catalog-comparison-name">
-                  {item.label}
-                </strong>
-              ))}
-              {comparisonRows.flatMap(row => [
-                <span
-                  key={`${row.label}-label`}
-                  className="catalog-comparison-label"
-                >
-                  {row.label}
-                </span>,
-                ...comparison.map(item => (
-                  <span
-                    key={`${row.label}-${item.id}`}
-                    className="catalog-comparison-value"
-                  >
-                    {row.value(item)}
-                  </span>
-                )),
-              ])}
-            </div>
-          </div>
-        ) : (
-          <p className="catalog-comparison-empty">
-            Sélectionnez deux fiches à comparer. Les valeurs restent des
-            hypothèses de concept.
+      <section className="panel catalog-comparison-panel legacy-comparison-panel" aria-labelledby="catalog-comparison-title"><div className="panel-header"><div><p className="eyebrow">ÉTUDE DE VARIANTES / PARAMÈTRES DÉCLARÉS</p><h3 id="catalog-comparison-title">Comparer deux concepts</h3></div><span className="calculated-badge">{comparison.length} / 2 sélectionnés</span></div>{comparison.length === 2 ? <div className="catalog-comparison-scroll"><div className="catalog-comparison-grid"><div className="catalog-comparison-label">Paramètre</div>{comparison.map(item => <strong key={item.id} className="catalog-comparison-name">{item.label}</strong>)}{comparisonRows.flatMap(([label, value]) => [<span key={`${label}-label`} className="catalog-comparison-label">{label}</span>, ...comparison.map(item => <span key={`${label}-${item.id}`} className="catalog-comparison-value">{value(item)}</span>)])}</div></div> : <p className="catalog-comparison-empty">Sélectionnez deux fiches à comparer. Les valeurs restent des hypothèses de concept.</p>}</section>
+      <section className="legacy-concept-section" aria-labelledby="legacy-concepts-title"><div className="legacy-section-heading"><div><p className="eyebrow">05 / CONCEPTS AEROMIND · PARAMETRIC CORE</p><h3 id="legacy-concepts-title">Variantes paramétriques disponibles</h3></div><span>{visibleCatalog.length} / {catalog.length} affichés</span></div><div className="legacy-concept-grid">{visibleCatalog.map(item => <article key={item.id} className={`legacy-concept-card catalog-${item.tone} ${selected?.id === item.id ? "is-selected" : ""}`}><div className="legacy-concept-visual"><ParametricDronePreview design={item} /><span>{item.modelType?.toUpperCase() ?? "PARAMETRIC"}</span></div><div className="legacy-concept-copy"><p className="eyebrow">{item.family.toUpperCase()}</p><h4>{item.label}</h4><p>{item.mission}</p><div className="legacy-concept-metrics"><span><small>ENVERGURE</small><b>{item.configuration.wingspan?.toFixed(1)} m</b></span><span><small>CHARGE</small><b>{item.configuration.payloadKg?.toFixed(1)} kg</b></span><span><small>ÉNERGIE</small><b>{item.configuration.batteryWh} Wh</b></span><span><small>MOTEURS</small><b>{item.configuration.motorCount ?? "—"}</b></span></div><div className="legacy-concept-actions"><button type="button" className={selected?.id === item.id ? "is-active" : ""} onClick={() => setSelectedId(item.id)}>{selected?.id === item.id ? <Check size={13} /> : <Plus size={13} />} {selected?.id === item.id ? "Fiche affichée" : "Ouvrir la fiche"}</button><button type="button" onClick={() => toggleComparison(item.id)}>{comparisonIds.includes(item.id) ? "Dans la comparaison" : "Comparer"}</button><button type="button" className="primary-button" onClick={() => onLoad(item)}><Box size={14} /> Créer une variante</button></div></div></article>)}</div></section>
+      {selected ? <section className="panel legacy-selected-sheet" aria-label={`Fiche ${selected.label}`}><div className="panel-header"><div><p className="eyebrow">RÉFÉRENCE PROTOTYPE · FICHE SÉLECTIONNÉE</p><h3>{selected.label}</h3></div><span className="calculated-badge"><ShieldCheck size={13} /> NON ARMÉ · TRACE À VALIDER</span></div><div className="legacy-selected-layout"><div className="legacy-selected-visual"><ParametricDronePreview design={selected} /><span>AEROMIND / PHYSICAL PARAMETRIC MOCKUP · {selected.modelType?.toUpperCase()} · SPAN {selected.configuration.wingspan?.toFixed(2)} M</span></div><div className="legacy-selected-data"><p>{selected.mission}</p><p>{selected.defenseUse}</p><dl><div><dt>ARCHITECTURE</dt><dd>{selected.family} · {selected.modelType}</dd></div><div><dt>CONSTRUCTION</dt><dd>Composite / géométrie paramétrique</dd></div><div><dt>FUSELAGE</dt><dd>{selected.configuration.fuselageLength?.toFixed(2)} m · profil déclaré</dd></div><div><dt>DONNÉES</dt><dd>Hypothèses préliminaires · aucune certification automatique</dd></div></dl><div className="legacy-selected-actions"><button className="secondary-button" type="button" onClick={onOpenTools}><SlidersHorizontal size={14} /> Modifier dans le Poste de construction</button><button className="primary-button" type="button" onClick={() => onLoad(selected)}><Box size={14} /> Charger cette référence</button></div></div></div></section> : <section className="panel legacy-empty-sheet"><ShieldCheck size={18} /><div><p className="eyebrow">RÉFÉRENCE SÉLECTIONNÉE</p><h3>Aucune architecture choisie</h3><span>Sélectionnez une fiche pour afficher son visuel paramétrique, ses données et ses actions. Aucun modèle n’est injecté par défaut.</span></div></section>}
+      <section className="panel inspector-note"><Info size={15} /><span>Les concepts sont des hypothèses de travail destinées à l’observation, à la cartographie, au secours et à la protection civile non armée. Ils deviennent un projet seulement après l’action explicite de l’utilisateur.</span></section>
+    </div>
+  );
+}
+function LongRangeObservationSection({
+  onLoad,
+}: {
+  onLoad: (design: DroneCatalogDesign) => void;
+}) {
+  const [classFilter, setClassFilter] = useState<"all" | "HALE" | "MALE">("all");
+  const [selectedId, setSelectedId] = useState("");
+  const vectors = longRangeObservationVectors.filter(
+    item => classFilter === "all" || item.enduranceClass === classFilter
+  );
+  const selected: LongRangeObservationVector | undefined =
+    vectors.find(item => item.id === selectedId);
+  const preparationNote = selected ? buildLongRangePreparationNote(selected) : [];
+  return (
+    <section
+      className="panel long-range-panel"
+      aria-labelledby="long-range-category-title"
+    >
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">
+            CATÉGORIE 04 / {LONG_RANGE_CATEGORY_CLASSIFICATION.toUpperCase()}
           </p>
-        )}
-      </section>
-      <div className="catalog-grid">
-        {catalog.map(item => (
-          <article
-            key={item.id}
-            className={`catalog-card catalog-${item.tone}`}
-          >
-            <div className="catalog-visual">
-              <ParametricDronePreview design={item} />
-            </div>
-            <div className="catalog-copy">
-              <span className="catalog-shape-label">
-                {item.origin === "prototype-reference"
-                  ? "RÉFÉRENCE PROTOTYPE"
-                  : "VARIANTE PARAMÉTRIQUE"}{" "}
-                · FORME :{" "}
-                {
-                  {
-                    long: "Longue",
-                    flat: "Plate",
-                    fusiform: "Fuselée profilée · civile",
-                    surveillance: "Surveillance",
-                    assistance: "Assistance",
-                  }[item.silhouette ?? "long"]
-                }
-              </span>
-              <p className="eyebrow">
-                CONCEPT INÉDIT / {item.family.toUpperCase()}
-              </p>
-              <h3>{item.label}</h3>
-              <p>{item.mission}</p>
-              {item.role === "défense-non-armée" && (
-                <div className="catalog-defense-badge">
-                  DÉFENSE DÉMOCRATIQUE · NON ARMÉ
-                </div>
-              )}
-              {item.defenseUse && (
-                <p className="catalog-defense-use">{item.defenseUse}</p>
-              )}
-              <div className="catalog-specs">
-                <span>{item.specs}</span>
-                <small>{item.disciplines}</small>
-              </div>
-              <button
-                className={`catalog-compare-button ${comparisonIds.includes(item.id) ? "is-selected" : ""}`}
-                type="button"
-                aria-pressed={comparisonIds.includes(item.id)}
-                onClick={() => toggleComparison(item.id)}
-              >
-                {comparisonIds.includes(item.id) ? (
-                  <Check size={13} />
-                ) : (
-                  <Plus size={13} />
-                )}
-                {comparisonIds.includes(item.id)
-                  ? "Dans la comparaison"
-                  : "Comparer ce profil"}
-              </button>
-              <div className="catalog-meta-grid">
-                <span>
-                  <small>ARCHITECTURE</small>
-                  <b>
-                    {item.family} · {item.modelType}
-                  </b>
-                </span>
-                <span>
-                  <small>CONSTRUCTION</small>
-                  <b>
-                    {item.key === "fixed-wing"
-                      ? "Composite / aile"
-                      : item.key === "vtol"
-                        ? "Cellule mixte"
-                        : "Châssis modulaire"}
-                  </b>
-                </span>
-                <span>
-                  <small>FUSELAGE</small>
-                  <b>
-                    {item.key === "fixed-wing"
-                      ? "Central profilé"
-                      : item.key === "vtol"
-                        ? "Nacelle intégrée"
-                        : "Plateforme compacte"}
-                  </b>
-                </span>
-                <span>
-                  <small>MODÈLE</small>
-                  <b>Concept {item.id.toUpperCase()}</b>
-                </span>
-              </div>
-              <button className="primary-button" onClick={() => onLoad(item)}>
-                <Box size={15} /> Créer une variante
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-      <section className="panel engineering-stack">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">POSTE D’INGÉNIERIE AVANCÉE</p>
-            <h3>Disciplines intégrées</h3>
-          </div>
-          <Wrench size={16} className="muted-icon" />
+          <h3 id="long-range-category-title">{LONG_RANGE_CATEGORY_LABEL}</h3>
+          <p className="section-description">
+            Cellules à fuselage allongé et grande envergure pour la surveillance
+            continue de zones d’accès restreint en temps de crise. Capteurs de
+            situation et relais de communication uniquement : aucune charge
+            militaire, aucun ciblage, supervision humaine obligatoire.
+          </p>
         </div>
-        <div className="discipline-grid">
-          {[
-            ["Architecture système", "Entrées/sorties, masse, interfaces"],
+        <span className="calculated-badge">
+          <Timer size={13} /> {longRangeObservationSummary.total} vecteurs ·{" "}
+          {longRangeObservationSummary.hale} HALE /{" "}
+          {longRangeObservationSummary.male} MALE
+        </span>
+      </div>
+      <div className="long-range-toolbar">
+        <div
+          className="long-range-filters"
+          role="group"
+          aria-label="Filtrer les vecteurs longue portée"
+        >
+          {(
             [
-              "Mécanique & structures",
-              "Charges, matériaux, facteurs de sécurité",
-            ],
-            ["Aérodynamique préliminaire", "Surface, charge alaire, enveloppe"],
-            ["Propulsion & énergie", "Moteurs, batterie, réserve"],
-            ["Avionique & capteurs", "Capteurs, liaison, redondance"],
-            ["Fabrication & essais", "Nomenclature, procédures, critères"],
-            ["Sécurité fonctionnelle", "Retour sûr, supervision, limites"],
-            ["Jumeau numérique", "Trajectoire, télémétrie, scénarios"],
-          ].map(([item, detail], index) => (
+              ["all", "TOUS", longRangeObservationSummary.total],
+              ["HALE", "HALE · HAUTE ALTITUDE", longRangeObservationSummary.hale],
+              ["MALE", "MALE · MOYENNE ALTITUDE", longRangeObservationSummary.male],
+            ] as const
+          ).map(([id, label, count]) => (
             <button
-              className="discipline-card discipline-card-button"
-              key={item}
-              onClick={onOpenTools}
+              key={id}
+              type="button"
+              className={classFilter === id ? "is-active" : ""}
+              aria-pressed={classFilter === id}
+              onClick={() => setClassFilter(id)}
             >
-              <span>0{index + 1}</span>
-              <strong>{item}</strong>
-              <small>{detail}</small>
-              <em>Ouvrir dans les outils →</em>
+              {label} <b>{count}</b>
             </button>
           ))}
         </div>
-        <div className="inspector-note">
-          <Info size={15} />
-          <span>
-            Ces concepts ne sont pas des drones réels ni des plans de
-            fabrication certifiés. Ils deviennent un projet seulement après
-            l’action explicite de l’utilisateur.
-          </span>
+        <div className="long-range-kpis">
+          <div>
+            <span>Endurance max. visée</span>
+            <strong>{longRangeObservationSummary.maxEnduranceHours} h</strong>
+          </div>
+          <div>
+            <span>Plafond max. de référence</span>
+            <strong>{longRangeObservationSummary.maxServiceCeilingM} m</strong>
+          </div>
+          <div>
+            <span>Catégorisation</span>
+            <strong>CAPTEURS · NON ARMÉ</strong>
+          </div>
         </div>
-      </section>
-    </div>
+      </div>
+      <div className="long-range-layout">
+        <div className="long-range-grid">
+          {vectors.map(item => (
+            <article
+              key={item.id}
+              className={`long-range-card catalog-${item.tone} ${selected?.id === item.id ? "is-selected" : ""}`}
+            >
+              <div className="long-range-visual">
+                <ParametricDronePreview design={item} />
+                <span className={`long-range-class class-${item.enduranceClass.toLowerCase()}`}>
+                  {item.enduranceClass}
+                </span>
+              </div>
+              <div className="long-range-copy">
+                <p className="eyebrow">{item.family.toUpperCase()}</p>
+                <h4>{item.label}</h4>
+                <p>{item.mission}</p>
+                <div className="long-range-metrics">
+                  <span>
+                    <small>ENDURANCE VISÉE</small>
+                    <b>{item.enduranceHours} h</b>
+                  </span>
+                  <span>
+                    <small>PLAFOND DE RÉFÉRENCE</small>
+                    <b>{item.serviceCeilingM} m</b>
+                  </span>
+                  <span>
+                    <small>ENVERGURE</small>
+                    <b>{item.configuration.wingspan?.toFixed(1)} m</b>
+                  </span>
+                  <span>
+                    <small>CHARGE CAPTEURS</small>
+                    <b>{item.configuration.payloadKg?.toFixed(1)} kg</b>
+                  </span>
+                </div>
+                <div className="long-range-actions">
+                  <button
+                    className={`catalog-compare-button ${selected?.id === item.id ? "is-selected" : ""}`}
+                    type="button"
+                    aria-pressed={selected?.id === item.id}
+                    onClick={() => setSelectedId(item.id)}
+                  >
+                    {selected?.id === item.id ? (
+                      <Check size={13} />
+                    ) : (
+                      <Plus size={13} />
+                    )}
+                    {selected?.id === item.id
+                      ? "Fiche affichée"
+                      : "Ouvrir la fiche technique"}
+                  </button>
+                  <button className="primary-button" onClick={() => onLoad(item)}>
+                    <Box size={15} /> Créer une variante
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+        {selected ? (
+          <aside className="panel long-range-sheet" aria-label="Fiche technique longue portée">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">
+                  FICHE D’IDENTIFICATION / {selected.enduranceClass}
+                </p>
+                <h3>{selected.label}</h3>
+              </div>
+              <span className="calculated-badge">
+                <ShieldCheck size={13} /> NON ARMÉ
+              </span>
+            </div>
+            <dl className="long-range-detail-list">
+              <div>
+                <dt>Catégorie</dt>
+                <dd>{LONG_RANGE_CATEGORY_CLASSIFICATION}</dd>
+              </div>
+              <div>
+                <dt>Architecture</dt>
+                <dd>
+                  Fuselage allongé · envergure{" "}
+                  {selected.configuration.wingspan?.toFixed(1)} m · longueur{" "}
+                  {selected.configuration.fuselageLength?.toFixed(1)} m
+                </dd>
+              </div>
+              <div>
+                <dt>Endurance de référence</dt>
+                <dd>
+                  {selected.enduranceHours} h visées (hypothèse d’avant-projet)
+                </dd>
+              </div>
+              <div>
+                <dt>Plafond de référence</dt>
+                <dd>{selected.serviceCeilingM} m — valeur de conception</dd>
+              </div>
+              <div>
+                <dt>Régime de surveillance</dt>
+                <dd>{selected.surveillanceRegime}</dd>
+              </div>
+            </dl>
+            <div className="long-range-blocks">
+              <div>
+                <strong>Contraintes environnementales</strong>
+                <ul>
+                  {selected.environmentalConstraints.map(item => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <strong>Suite de capteurs déclarée</strong>
+                <ul>
+                  {selected.sensorSuite.map(item => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <strong>Points de vigilance ingénierie</strong>
+                <ul>
+                  {selected.engineeringWatchpoints.map(item => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="long-range-note">
+              <strong>Note de préparation documentaire</strong>
+              {preparationNote.map(line => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
+            <div className="inspector-note">
+              <Info size={15} />
+              <span>
+                Cette fiche décrit une hypothèse de travail destinée à
+                l’observation et au relais de situation. Elle ne constitue ni une
+                autorisation de vol, ni une performance certifiée, ni un plan de
+                fabrication.
+              </span>
+            </div>
+          </aside>
+        ) : (
+          <aside className="panel long-range-sheet long-range-empty-sheet" aria-label="Aucune fiche sélectionnée">
+            <div className="panel-header"><div><p className="eyebrow">FICHE TECHNIQUE / EN ATTENTE</p><h3>Sélection utilisateur requise</h3></div><span className="calculated-badge">AUCUNE SÉLECTION</span></div>
+            <p className="long-range-empty-copy">Sélectionnez « Ouvrir la fiche technique » sur une carte pour afficher ses métriques, contraintes et recommandations. AeroMind ne charge aucun vecteur par défaut.</p>
+            <div className="long-range-empty-orbit"><span>HALE / MALE</span><i /><b>READY</b></div>
+          </aside>
+        )}
+      </div>
+    </section>
   );
 }
 function ConceptView({
@@ -3343,7 +2917,7 @@ function ConceptView({
     message: string;
   } | null>(null);
   const activeCatalogProfile = config.platformProfile
-    ? droneCatalog.find(item => item.id === config.platformProfile)
+    ? findDroneProfile(config.platformProfile)
     : undefined;
   useEffect(() => {
     if (previousConfig.current === config) return;
@@ -3807,6 +3381,7 @@ function ConceptView({
           </div>
         )}
       </section>
+      <DroneBehaviorPanel configuration={config} context="construction" />
       <section className="panel physical-construction-panel" aria-label="Construction matérielle du studio">
         <div className="panel-header">
           <div>
@@ -6056,6 +5631,12 @@ function InspectorView({
 }) {
   const update = (key: keyof ConceptConfig, value: number) =>
     setConfig({ ...config, [key]: value });
+  const [projection, setProjection] = useState<"top" | "iso" | "side">("top");
+  const [plateZoom, setPlateZoom] = useState(1);
+  const selectedProfile = findDroneProfile(config.platformProfile);
+  const liveDesign: DroneCatalogDesign | undefined = selectedProfile
+    ? { ...selectedProfile, configuration: { ...selectedProfile.configuration, ...config } }
+    : undefined;
   return (
     <div className="view-stack">
       <SectionHeading
@@ -6077,6 +5658,8 @@ function InspectorView({
             `${config.payloadKg.toFixed(2)} kg`,
             "Capteur et interface mécanique",
           ],
+          ["Structure", `${config.wingspan.toFixed(2)} × ${config.fuselageLength.toFixed(2)} m`, "Envergure × longueur déclarées"],
+          ["Environnement", `${config.windSpeedKmh.toFixed(0)} km/h`, "Vent de référence du scénario"],
         ].map(([title, value, detail]) => (
           <article className="equipment-card" key={title}>
             <span className="eyebrow">ÉQUIPEMENT</span>
@@ -6096,19 +5679,23 @@ function InspectorView({
             </div>
             <ScanLine size={16} className="cyan-icon" />
           </div>
-          <ConceptCanvas
-            config={config}
-            selected={selectedComponent}
-            onSelect={setSelectedComponent}
-            rotation={rotation}
-            rotationX={rotationX}
-            rotationY={rotationY}
-            zoom={zoom}
-            setRotation={setRotation}
-            setRotationX={setRotationX}
-            setRotationY={setRotationY}
-            setZoom={setZoom}
-          />
+          <div className="inspector-camera-toolbar" role="group" aria-label="Outils de vue du jumeau numérique">
+            <span>PROJECTION</span>
+            {(["top", "iso", "side"] as const).map(view => <button key={view} type="button" className={projection === view ? "is-active" : ""} aria-pressed={projection === view} onClick={() => setProjection(view)}>{view === "top" ? "PLAN" : view === "iso" ? "ISO" : "PROFIL"}</button>)}
+            <i />
+            <button type="button" aria-label="Réduire le zoom du jumeau" onClick={() => setPlateZoom(value => Math.max(0.7, Number((value - 0.1).toFixed(1))))}>−</button>
+            <strong>{Math.round(plateZoom * 100)}%</strong>
+            <button type="button" aria-label="Augmenter le zoom du jumeau" onClick={() => setPlateZoom(value => Math.min(1.55, Number((value + 0.1).toFixed(1))))}>+</button>
+            <button type="button" onClick={() => setPlateZoom(1)}>RÉINITIALISER</button>
+          </div>
+          <div className="inspector-live-3d-stage">
+            <EngineeringDronePlate design={liveDesign} status="flying" projection={projection} zoom={plateZoom} construction={{ parts: config.installedMaterials?.length ?? 0, massKg: config.constructionMassKg ?? 0 }} />
+            <div className="inspector-live-3d-readout">
+              <span>WEBGL / MESH PERSISTANT / VOLUMES PBR</span>
+              <b>{config.payloadKg.toFixed(2)} kg utile · {config.windSpeedKmh.toFixed(0)} km/h vent · {config.batteryWh.toFixed(0)} Wh</b>
+              <small>Dimensions et contraintes recalculées depuis les paramètres inspectés.</small>
+            </div>
+          </div>
         </section>
         <section className="panel equipment-parameters">
           <div className="panel-header">
@@ -6145,6 +5732,43 @@ function InspectorView({
             step={1}
             onChange={value => update("windSpeedKmh", value)}
           />
+          <div className="inspector-config-divider">GÉOMÉTRIE & ENVELOPPE</div>
+          <ParameterField
+            label="Envergure"
+            value={config.wingspan}
+            unit="m"
+            min={0.4}
+            max={12}
+            step={0.05}
+            onChange={value => update("wingspan", value)}
+          />
+          <ParameterField
+            label="Longueur fuselage"
+            value={config.fuselageLength}
+            unit="m"
+            min={0.25}
+            max={6}
+            step={0.05}
+            onChange={value => update("fuselageLength", value)}
+          />
+          <ParameterField
+            label="Diamètre hélice"
+            value={config.propDiameter}
+            unit="m"
+            min={0.08}
+            max={2}
+            step={0.01}
+            onChange={value => update("propDiameter", value)}
+          />
+          <ParameterField
+            label="Masse max. décollage"
+            value={config.maxTakeoffKg}
+            unit="kg"
+            min={0.5}
+            max={60}
+            step={0.1}
+            onChange={value => update("maxTakeoffKg", value)}
+          />
           <div className="inspector-note">
             <Info size={15} />
             <span>
@@ -6154,6 +5778,7 @@ function InspectorView({
           </div>
         </section>
       </div>
+      <DroneBehaviorPanel configuration={config} context="inspection" />
     </div>
   );
 }
@@ -6236,27 +5861,10 @@ function SimulationView({
     total: number;
     time: string;
   } | null>(null);
-  const hasCustomSimulation = Boolean(config.airframe);
-  const simulation = hasCustomSimulation
-    ? baseSimulation
-    : runSimulation(
-        {
-          ...defaultConcept,
-          ...config,
-          airframe: "fixed-wing",
-          motorCount: config.motorCount ?? 1,
-          designName: "Scénario local personnalisable",
-        },
-        defaultRequirements,
-        "SIM-LOCAL-BASE"
-      );
+  const hasCustomSimulation = Boolean(config.airframe && config.motorCount);
+  const simulation = baseSimulation;
   const updateScenario = (key: keyof ConceptConfig, value: number) =>
-    setConfig({
-      ...config,
-      [key]: value,
-      airframe: config.airframe ?? "fixed-wing",
-      motorCount: config.motorCount ?? 1,
-    });
+    setConfig({ ...config, [key]: value });
   return (
     <div className="view-stack">
       <SectionHeading
@@ -6269,13 +5877,14 @@ function SimulationView({
         description={
           hasCustomSimulation
             ? "Chaque résultat conserve sa méthode, sa cible, sa marge et son niveau d’incertitude."
-            : "Un scénario de référence est disponible immédiatement. Modifiez les entrées ci-dessous puis relancez le calcul local."
+            : "Aucune donnée de scénario n’est introduite. Saisissez les paramètres ou choisissez une cellule, puis relancez le calcul local."
         }
         action={
           <button
             className="primary-button"
             onClick={onRunSimulation}
-            disabled={isRunning}
+            disabled={isRunning || !hasCustomSimulation}
+            title={!hasCustomSimulation ? "Saisie humaine requise avant tout calcul" : undefined}
           >
             {isRunning ? (
               <RefreshCw size={15} className="spin" />
@@ -6286,6 +5895,7 @@ function SimulationView({
           </button>
         }
       />
+      {!hasCustomSimulation && <div className="inspector-note human-input-lock"><ShieldCheck size={15} /><span><b>Saisie humaine requise.</b> AeroMind n’injecte aucun scénario, aucune architecture et aucune donnée de performance. Les valeurs n’apparaissent qu’après une action utilisateur explicite.</span></div>}
       <div className="simulation-meta">
         <span>
           <span className="meta-key">RUN</span> {simulation.runId}
@@ -6311,6 +5921,7 @@ function SimulationView({
           })}
         </span>
       </div>
+      <DroneBehaviorPanel configuration={config} context="simulation" state={simulation.runId} />
       <section className="panel simulation-inputs-panel">
         <div className="panel-header">
           <div>
@@ -6464,6 +6075,8 @@ function SimulationView({
           </div>
         )}
       </section>
+      {hasCustomSimulation ? (
+        <>
       <div className="simulation-grid">
         <section className="panel results-panel">
           <div className="panel-header">
@@ -6642,6 +6255,18 @@ function SimulationView({
                 </small>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+        </>
+      ) : (
+        <section className="panel simulation-results-waiting" aria-live="polite">
+          <div className="simulation-results-waiting-icon"><ShieldCheck size={20} /></div>
+          <div>
+            <p className="eyebrow">DATA GATE / RÉSULTATS SUSPENDUS</p>
+            <h3>Aucune performance n’est publiée sans baseline active.</h3>
+            <p>Les chiffres calculés sur la configuration vierge sont masqués. Sélectionnez une architecture et sa propulsion dans le Poste de construction pour ouvrir les indicateurs, les risques et le budget énergétique.</p>
+            <div className="simulation-waiting-checks"><span><i className={config.airframe ? "is-ready" : ""} />Architecture {config.airframe ? "définie" : "requise"}</span><span><i className={config.airframe && config.motorCount ? "is-ready" : ""} />Propulsion {config.airframe && config.motorCount ? "définie" : "requise"}</span><span><i />Recalcul manuel après choix</span></div>
           </div>
         </section>
       )}
@@ -6827,6 +6452,12 @@ function CopilotView({
           title="Copilote AeroMind"
           description="Un copilote de préparation reste disponible dès l’exploration ; l’analyse contextualisée s’active dès qu’un projet est créé."
         />
+        <section className="copilot-analysis-rail" aria-label="Disponibilité du copilote">
+          <div><small>PROJET ACTIF</small><strong>NON SÉLECTIONNÉ</strong><span>Rattachement requis</span></div>
+          <div><small>CONFIGURATION</small><strong>EN ATTENTE</strong><span>Aucune architecture injectée</span></div>
+          <div><small>PREUVES</small><strong>0</strong><span>Aucun run projet actif</span></div>
+          <div><small>PROCHAINE ACTION</small><strong>BRIEF</strong><span>Créer ou ouvrir un espace de travail</span></div>
+        </section>
         <section className="panel copilot-empty-state">
           <div className="copilot-empty-orb">
             <Sparkles size={28} />
@@ -6898,6 +6529,12 @@ function CopilotView({
           <i /> RÉPONSE TRAÇABLE
         </span>
       </div>
+      <section className="copilot-analysis-rail" aria-label="Chaîne de décision et preuves">
+        <div><small>CONFIGURATION</small><strong>{config.designName || config.airframe || "À définir"}</strong><span>{config.motorCount ?? 0} moteur(s) · {formatNumber(config.wingspan, 2)} m</span></div>
+        <div><small>RUN DE RÉFÉRENCE</small><strong>{simulation.runId}</strong><span>{formatNumber(simulation.totalMassKg)} kg · {formatNumber(simulation.enduranceH)} h</span></div>
+        <div><small>RISQUES OUVERTS</small><strong>{simulation.risks.filter(risk => risk.status === "open").length}</strong><span>À traiter avant revue</span></div>
+        <div><small>EXIGENCES</small><strong>{requirements.length}</strong><span>Sources injectées dans le contexte</span></div>
+      </section>
       <div className="copilot-layout">
         <section className="panel copilot-panel">
           <div className="copilot-context">
@@ -7029,7 +6666,7 @@ function ReportView({
   remoteReady: boolean;
 }) {
   const reportsQuery = trpc.reports.list.useQuery(activeProjectId, {
-    enabled: remoteReady && /^\d+$/.test(activeProjectId),
+    enabled: remoteReady && !activeProjectId.startsWith("project-"),
     retry: false,
   });
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
@@ -7045,6 +6682,12 @@ function ReportView({
           title="Rapport technique révisable"
           description="Le rapport reste vierge tant qu’aucun projet n’a été créé."
         />
+        <section className="report-assurance-ribbon" aria-label="État du dossier documentaire">
+          <div><small>DOCUMENT CONTROL</small><strong>EN ATTENTE</strong><span>Aucun identifiant de rapport attribué</span></div>
+          <div><small>ARCHITECTURE</small><strong>—</strong><span>Choix explicite requis</span></div>
+          <div><small>PREUVES INCLUSES</small><strong>0</strong><span>Aucun run à tracer</span></div>
+          <div><small>STATUT D’ÉMISSION</small><strong>BLOQUÉE</strong><span>Projet requis · revue non effectuée</span></div>
+        </section>
         <section className="panel report-empty-state">
           <FileText size={30} />
           <h3>Aucun dossier de construction</h3>
@@ -7074,6 +6717,12 @@ function ReportView({
           </div>
         }
       />
+      <section className="report-assurance-ribbon" aria-label="Contrôle documentaire">
+        <div><small>DOCUMENT CONTROL</small><strong>RPT-{simulation.runId}</strong><span>Version {project.version} · modifiable</span></div>
+        <div><small>ARCHITECTURE</small><strong>{config.designName || config.airframe || "À définir"}</strong><span>{config.motorCount ?? 0} moteur(s) · charge {formatNumber(config.payloadKg)} kg</span></div>
+        <div><small>PREUVES INCLUSES</small><strong>{simulation.metrics.length + requirements.length + (config.installedMaterials?.length ?? 0)}</strong><span>indicateurs, exigences et composants</span></div>
+        <div><small>STATUT D’ÉMISSION</small><strong>REVUE REQUISE</strong><span>Pas de certification ou d’attestation implicite</span></div>
+      </section>
       <div className="report-layout">
         <article className="report-paper">
           <div className="report-cover">
@@ -7102,9 +6751,7 @@ function ReportView({
               <div>
                 <h4>Résumé de conception</h4>
                 <p>
-                  ATLAS est un concept préliminaire de drone électrique à
-                  voilure fixe pour inspection d’infrastructures. La
-                  configuration active présente une masse estimée de{" "}
+                  {config.designName || config.airframe || "L’architecture active"} est un concept préliminaire de plateforme aérienne. La configuration présente une masse estimée de{" "}
                   <strong>{formatNumber(simulation.totalMassKg)} kg</strong>,
                   une autonomie calculée de{" "}
                   <strong>{formatNumber(simulation.enduranceH)} h</strong> et
@@ -7702,6 +7349,13 @@ function LiveSimulationView({
             : "RETOUR SÛR · L’animation converge vers le point de départ; les manches sont neutralisés."}{" "}
         Toutes ces commandes n’agissent que sur le jumeau numérique local.
       </div>
+      <section className="test-telemetry-rail" aria-label="Lecture instrumentée du scénario">
+        <div><small>ALTITUDE MODÈLE</small><strong>{configured ? `${altitude} m` : "—"}</strong><span>AGL · scénario local</span></div>
+        <div><small>VITESSE CALCULÉE</small><strong>{configured ? `${speed} km/h` : "—"}</strong><span>vent {windSpeed} km/h</span></div>
+        <div><small>CAP</small><strong>{configured ? `${heading}°` : "—"}</strong><span>{mode.toUpperCase()}</span></div>
+        <div><small>RÉSERVE ESTIMÉE</small><strong>{configured ? `${battery}%` : "—"}</strong><span>run {simulation.runId}</span></div>
+      </section>
+      <DroneBehaviorPanel configuration={config} context="simulation" state={playing ? "LECTURE SIMULÉE" : "BANC EN ATTENTE"} />
       {!configured && (
         <section className="workspace-demo-gate">
           <div>
@@ -8225,6 +7879,12 @@ function LiveSimulationView({
           </div>
         )}
       </section>
+      <section className="telemetry-analytics-panel panel" aria-label="Télémétrie analytique temps réel">
+        <div className="panel-header"><div><p className="eyebrow">ANALYTIQUE / STREAM SYNTHÉTIQUE</p><h3>Courbes interconnectées</h3></div><span className="live-state live-on">LIVE</span></div>
+        <div className="telemetry-chart-grid">
+          {[{ title: "Stress structurel", unit: "σ / marge", color: "#ffb300", values: [28,34,31,46,43,58,51,65,60,72,66,78] }, { title: "Coefficient de traînée", unit: "Cd / profil", color: "#00e5ff", values: [62,57,59,53,55,48,51,45,47,41,44,38] }, { title: "Décharge batterie", unit: "% / cycle", color: "#00ff66", values: [96,92,89,84,81,76,72,66,61,55,49,43] }].map(chart => { const points = chart.values.map((value, index) => `${index * 16},${100 - value}`).join(" "); return <article className="telemetry-chart-card" key={chart.title}><div className="telemetry-chart-heading"><strong>{chart.title}</strong><span>{chart.unit}</span></div><svg viewBox="0 0 176 100" preserveAspectRatio="none" role="img" aria-label={`${chart.title}, graphique temps réel`}><path d="M0 20H176M0 50H176M0 80H176" className="telemetry-chart-gridline" /><polyline points={points} fill="none" stroke={chart.color} strokeWidth="2" vectorEffect="non-scaling-stroke" className="telemetry-chart-line" /><circle cx="176" cy={100 - chart.values.at(-1)!} r="3" fill={chart.color} /></svg><small>échantillons glissants · t−12 → maintenant</small></article>; })}
+        </div>
+      </section>
       <div className="live-disclaimer">
         <AlertTriangle size={15} /> Tous les essais utilisent des modèles
         déterministes préliminaires et des perturbations de scénario; aucune
@@ -8391,6 +8051,8 @@ function MissionOperationsView({
   setConfig,
   onOpenBuilder,
   onLoadDemoPlan,
+  simulationArmed,
+  onSimulationArmedChange,
 }: {
   projectName: string;
   config: ConceptConfig;
@@ -8398,7 +8060,12 @@ function MissionOperationsView({
   setConfig: (config: ConceptConfig) => void;
   onOpenBuilder: () => void;
   onLoadDemoPlan: () => void;
+  simulationArmed: boolean;
+  onSimulationArmedChange: (value: boolean) => void;
 }) {
+  const flightDesignProfile = config.platformProfile
+    ? findDroneProfile(config.platformProfile)
+    : undefined;
   const observationRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -8445,6 +8112,68 @@ function MissionOperationsView({
   const [operationLog, setOperationLog] = useState<string[]>([
     "Poste initialisé · aucune liaison aéronef active",
   ]);
+  // Flux de simulation continu : l'horizon artificiel et les graphiques de
+  // télémétrie sont alimentés en permanence, sans activation manuelle.
+  const [visionMode, setVisionMode] = useState<VisionMode>("visible");
+  const [visionGainPct, setVisionGainPct] = useState(62);
+  const liveParams = useMemo(
+    () => ({
+      cruiseSpeedKmh: config.cruiseSpeedKmh,
+      designAltitudeM: config.altitudeM,
+      batteryWh: config.batteryWh,
+      payloadKg: config.payloadKg,
+      motorCount: config.motorCount ?? 4,
+      reserveFraction: config.reserveFraction,
+    }),
+    [
+      config.cruiseSpeedKmh,
+      config.altitudeM,
+      config.batteryWh,
+      config.payloadKg,
+      config.motorCount,
+      config.reserveFraction,
+    ]
+  );
+  const [liveFlight, setLiveFlight] = useState<LiveFlightState>(() =>
+    createLiveFlightState(liveParams)
+  );
+  useEffect(() => {
+    setLiveFlight(current =>
+      setLiveArmed(current, simulationArmed, liveParams)
+    );
+  }, [simulationArmed, liveParams]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLiveFlight(current => advanceLiveFlight(current, 0.25, liveParams));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [liveParams]);
+  const liveAltitudeSeries = liveSeries(liveFlight.samples, "altitudeM");
+  const liveSpeedSeries = liveSeries(liveFlight.samples, "speedKmh");
+  const liveBatterySeries = liveSeries(liveFlight.samples, "batteryPct");
+  const livePowerSeries = liveSeries(liveFlight.samples, "powerW");
+  const liveVibrationSeries = liveSeries(liveFlight.samples, "vibrationG");
+  const liveLinkSeries = liveSeries(liveFlight.samples, "linkQualityPct");
+  const setSimulationArmState = (nextArmed: boolean) => {
+    const decision = authorizeControlCommand(
+      {
+        kind: nextArmed ? "simulation-arm" : "simulation-disarm",
+        operator: "opérateur-local",
+        requestedAt: new Date().toISOString(),
+      },
+      "simulation"
+    );
+    const audit = createControlAuditEvent(decision);
+    if (!decision.accepted) {
+      recordOperation(`${audit.id} · refusé · ${decision.reason}`);
+      return;
+    }
+    onSimulationArmedChange(nextArmed);
+    if (!nextArmed) setVisionMode("visible");
+    recordOperation(
+      `${audit.id} · ${nextArmed ? "armement virtuel du scénario local" : "désarmement virtuel"} · état global mis à jour, aucune sortie actionneur`
+    );
+  };
   const missionPlan: LocalMissionPlan = {
     ...defaultLocalMissionPlan,
     ...config.missionPlan,
@@ -8456,6 +8185,7 @@ function MissionOperationsView({
     altitudeM: config.altitudeM,
     cruiseSpeedKmh: config.cruiseSpeedKmh,
     missionPlan,
+    missionEnvironment: config.missionEnvironment,
   });
   const waypoints = missionPlan.waypoints;
   const missionChecks = validateLocalMission(config, missionPlan);
@@ -9052,6 +8782,17 @@ function MissionOperationsView({
     temperature: telemetryState === "connected" ? 41.8 : 28.4,
     vibration: telemetryState === "connected" ? 0.04 : 0,
   };
+  // Le HUD affiche la trame WSS reçue si elle existe, sinon le flux de
+  // simulation continue : l'écran d'observation n'est jamais figé.
+  const hudUsesExternalFeed = telemetrySource === "wss" && telemetry !== null;
+  const hudValues = {
+    altitudeM: hudUsesExternalFeed ? telemetry?.altitudeM : liveFlight.altitudeM,
+    speedKmh: hudUsesExternalFeed ? telemetry?.speedKmh : liveFlight.speedKmh,
+    headingDeg: hudUsesExternalFeed ? telemetry?.headingDeg : liveFlight.headingDeg,
+    batteryPct: hudUsesExternalFeed ? telemetry?.batteryPct : liveFlight.batteryPct,
+    pitchDeg: liveFlight.pitchDeg,
+    rollDeg: liveFlight.rollDeg,
+  };
   return (
     <div className="view-stack mission-operations-view">
       <SectionHeading
@@ -9283,6 +9024,47 @@ function MissionOperationsView({
                 <Maximize2 size={14} /> Plein écran
               </button>
             </div>
+            <div
+              className="mission-vision-modes"
+              role="group"
+              aria-label="Couches de vision de l’écran d’observation"
+            >
+              {visionModes.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`vision-mode-button mode-${item.id} ${visionMode === item.id ? "is-active" : ""}`}
+                  aria-pressed={visionMode === item.id}
+                  disabled={!simulationArmed && item.id !== "visible"}
+                  title={
+                    simulationArmed
+                      ? item.description
+                      : "Couche disponible après armement virtuel du scénario local."
+                  }
+                  onClick={() => {
+                    setVisionMode(item.id);
+                    recordOperation(
+                      `Écran d’observation · couche ${item.label.toUpperCase()} · shader simulé, aucune mesure radiométrique`
+                    );
+                  }}
+                >
+                  <span>{item.short}</span>
+                  {item.label}
+                </button>
+              ))}
+              <label className="vision-gain">
+                <span>GAIN {visionGainPct}%</span>
+                <input
+                  type="range"
+                  min="20"
+                  max="100"
+                  step="1"
+                  value={visionGainPct}
+                  onChange={event => setVisionGainPct(Number(event.target.value))}
+                  aria-label="Gain de la couche de vision simulée"
+                />
+              </label>
+            </div>
             <span
               className={`live-state ${videoState === "live" && !testFeedActive ? "live-on" : "live-off"}`}
             >
@@ -9375,6 +9157,12 @@ function MissionOperationsView({
               }}
               aria-label="Écran d’observation affichant uniquement la source vidéo connectée"
             />
+            <VisionShaderOverlay
+              mode={visionMode}
+              armed={simulationArmed}
+              gainPct={visionGainPct}
+              levelPct={48}
+            />
             {videoState !== "live" && (
               <div className="mission-video-placeholder">
                 <img
@@ -9404,52 +9192,52 @@ function MissionOperationsView({
             {showObservationReticle && (
               <div className="mission-video-reticle" aria-hidden="true" />
             )}
-            {videoState === "live" &&
-              showTelemetryOverlay &&
-              !testFeedActive && (
+            {showTelemetryOverlay && (
                 <div
                   className="mission-observation-hud"
-                  aria-label="Données télémétriques reçues"
+                  aria-label="Télémétrie de simulation continue"
                 >
                   <div>
                     <span>ALT</span>
                     <strong>
-                      {telemetry?.altitudeM === undefined
-                        ? "—"
-                        : `${displayValue(telemetry.altitudeM)} m`}
+                      {displayValue(hudValues.altitudeM)} m
                     </strong>
                   </div>
                   <div>
                     <span>VIT</span>
                     <strong>
-                      {telemetry?.speedKmh === undefined
-                        ? "—"
-                        : `${displayValue(telemetry.speedKmh)} km/h`}
+                      {displayValue(hudValues.speedKmh)} km/h
                     </strong>
                   </div>
                   <div>
                     <span>CAP</span>
                     <strong>
-                      {telemetry?.headingDeg === undefined
-                        ? "—"
-                        : `${displayValue(telemetry.headingDeg, 0)}°`}
+                      {displayValue(hudValues.headingDeg, 0)}°
                     </strong>
                   </div>
                   <div>
                     <span>BATT</span>
                     <strong>
-                      {telemetry?.batteryPct === undefined
-                        ? "—"
-                        : `${displayValue(telemetry.batteryPct, 0)}%`}
+                      {displayValue(hudValues.batteryPct, 0)}%
                     </strong>
                   </div>
+                  <div>
+                    <span>ASSIETTE</span>
+                    <strong>
+                      {hudValues.pitchDeg.toFixed(1)}° / {hudValues.rollDeg.toFixed(1)}°
+                    </strong>
+                  </div>
+                  <div>
+                    <span>PUI</span>
+                    <strong>{liveFlight.powerW} W</strong>
+                  </div>
                   <small>
-                    {telemetry
+                    {hudUsesExternalFeed && telemetry
                       ? `TRAME WSS · ${new Date(telemetry.receivedAt).toLocaleTimeString("fr-FR")}`
-                      : "AUCUNE TÉLÉMÉTRIE · IMAGE VIDÉO UNIQUEMENT"}
+                      : `FLUX DE SIMULATION CONTINUE · ${liveFlight.samples.length} TRAMES · HORLOGE ${Math.floor(liveFlight.elapsedS / 60)}:${String(Math.floor(liveFlight.elapsedS % 60)).padStart(2, "0")}`}
                   </small>
                 </div>
-              )}
+            )}
             <span
               className={`mission-video-tag ${videoState === "live" && !testFeedActive ? "is-live" : ""} ${testFeedActive ? "is-demo" : ""}`}
             >
@@ -9657,6 +9445,24 @@ function MissionOperationsView({
                     <i className="is-amber" /> HOME / {waypoints.length} WP
                   </span>
                 </div>
+              </div>
+              <div className="mission-analytics-horizon">
+                <div className="mission-analytics-horizon-heading">
+                  <span>
+                    <Crosshair size={13} /> HORIZON ARTIFICIEL · FLUX CONTINU
+                  </span>
+                  <small>{describeLivePhase(liveFlight)}</small>
+                </div>
+                <ArtificialHorizon
+                  pitchDeg={liveFlight.pitchDeg}
+                  rollDeg={liveFlight.rollDeg}
+                  headingDeg={liveFlight.headingDeg}
+                  altitudeM={liveFlight.altitudeM}
+                  speedKmh={liveFlight.speedKmh}
+                  verticalSpeedMs={liveFlight.verticalSpeedMs}
+                  armed={simulationArmed}
+                  compact
+                />
               </div>
               <div className="mission-analytics-instruments">
                 <div className="mission-instrument-card is-primary">
@@ -9975,6 +9781,113 @@ function MissionOperationsView({
           </small>
         </section>
       </div>
+      <section
+        className="panel live-telemetry-panel"
+        aria-label="Télémétrie de simulation défilante"
+      >
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">FLUX CONTINU · GRAPHIQUES DÉFILANTS</p>
+            <h3>Télémétrie de simulation en défilement</h3>
+            <p className="section-description">
+              Le flux est alimenté en permanence par le modèle de simulation
+              local : les courbes se décalent à chaque trame sans action
+              opérateur. Aucune valeur n’est présentée comme une mesure
+              embarquée et aucune écriture de télémétrie n’est possible.
+            </p>
+          </div>
+          <span className={`calculated-badge ${simulationArmed ? "is-armed" : ""}`}>
+            <Activity size={13} /> {describeLivePhase(liveFlight)}
+          </span>
+        </div>
+        <div className="live-telemetry-strips">
+          <TelemetryStripChart
+            label="ALTITUDE"
+            unit="m"
+            values={liveAltitudeSeries}
+            tone="cyan"
+            decimals={0}
+          />
+          <TelemetryStripChart
+            label="VITESSE"
+            unit="km/h"
+            values={liveSpeedSeries}
+            tone="green"
+            decimals={1}
+          />
+          <TelemetryStripChart
+            label="BATTERIE"
+            unit="%"
+            values={liveBatterySeries}
+            tone="amber"
+            decimals={2}
+          />
+          <TelemetryStripChart
+            label="PUISSANCE"
+            unit="W"
+            values={livePowerSeries}
+            tone="violet"
+            decimals={0}
+          />
+          {simulationArmed && (
+            <>
+              <TelemetryStripChart
+                label="QUALITÉ DE LIAISON"
+                unit="%"
+                values={liveLinkSeries}
+                tone="coral"
+                decimals={0}
+              />
+              <TelemetryStripChart
+                label="VIBRATION"
+                unit="g"
+                values={liveVibrationSeries}
+                tone="cyan"
+                decimals={3}
+              />
+            </>
+          )}
+        </div>
+        <div className="live-telemetry-rail">
+          <div>
+            <span>ASSIETTE COURANTE</span>
+            <strong>
+              {liveFlight.pitchDeg.toFixed(1)}° / {liveFlight.rollDeg.toFixed(1)}°
+            </strong>
+          </div>
+          <div>
+            <span>CAP SIMULÉ</span>
+            <strong>{liveFlight.headingDeg.toFixed(0)}°</strong>
+          </div>
+          <div>
+            <span>CIBLE DE CROISIÈRE</span>
+            <strong>
+              {cruiseSpeedTarget(liveParams).toFixed(0)} km/h ·{" "}
+              {cruiseAltitudeTarget(liveParams).toFixed(0)} m
+            </strong>
+            {usesSimulationDefaults(liveParams) && (
+              <small className="live-telemetry-note">
+                Valeurs par défaut du simulateur : renseignez vitesse, plafond et
+                capacité pour des cibles issues de votre configuration.
+              </small>
+            )}
+          </div>
+          <div>
+            <span>TRAMES EN TAMPON</span>
+            <strong>{liveFlight.samples.length}</strong>
+          </div>
+          {!hasEnergyBudget(liveParams) && (
+            <div className="live-telemetry-note-block">
+              <span>BUDGET ÉNERGIE</span>
+              <strong>NON RENSEIGNÉ · AUCUNE DÉCHARGE SIMULÉE</strong>
+            </div>
+          )}
+          <div>
+            <span>SORTIE MATÉRIELLE</span>
+            <strong>BLOQUÉE PAR CONTRAT</strong>
+          </div>
+        </div>
+      </section>
       <div className="mission-ops-grid">
         <section className="panel mission-command-panel">
           <div className="panel-header">
@@ -9998,6 +9911,45 @@ function MissionOperationsView({
                           ? "ATTERRISSAGE D’URGENCE"
                           : "CLOS"}
             </span>
+          </div>
+          <div
+            className={`mission-arm-bar ${simulationArmed ? "is-armed" : "is-disarmed"}`}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="mission-arm-state">
+              <span className="arm-state-dot" />
+              <strong>
+                {simulationArmed
+                  ? "ARMEMENT VIRTUEL ACTIF · SCÉNARIO LOCAL"
+                  : "VÉHICULE DÉSARMÉ · BANC AU SOL SIMULÉ"}
+              </strong>
+              <small>
+                {describeLivePhase(liveFlight)} · altitude{" "}
+                {liveFlight.altitudeM.toFixed(0)} m · {liveFlight.speedKmh.toFixed(0)} km/h ·
+                énergie {liveFlight.batteryPct.toFixed(0)} % · {liveFlight.powerW} W
+              </small>
+            </div>
+            <div className="mission-arm-actions">
+              <button
+                type="button"
+                className={`arm-button ${simulationArmed ? "is-active" : ""}`}
+                onClick={() => setSimulationArmState(true)}
+                disabled={simulationArmed}
+                title="Arme le scénario de simulation local : état d’interface et couches de vision uniquement. Aucun actionneur, aucune sortie matérielle."
+              >
+                <Zap size={14} /> ARMER (SIM)
+              </button>
+              <button
+                type="button"
+                className="disarm-button"
+                onClick={() => setSimulationArmState(false)}
+                disabled={!simulationArmed}
+                title="Désarme le scénario local et remet l’interface au banc au sol simulé."
+              >
+                <ShieldCheck size={14} /> DISARM
+              </button>
+            </div>
           </div>
           <div className="mission-command-grid">
             <button
@@ -10195,12 +10147,8 @@ function MissionOperationsView({
                   className="mission-command-aircraft-marker"
                   aria-label="Position de démonstration locale"
                 >
-                  <ellipse cy="5" rx="9" ry="2.6" className="command-drone-shadow" />
-                  <g className="command-physical-drone">
-                    <path d="M0 -5 L2.4 -2.2 L7 -1.2 L8.2 0 L3.2 1.2 L1.4 5 L-1.4 5 L-3.2 1.2 L-8.2 0 L-7 -1.2 L-2.4 -2.2 Z" className="command-drone-body" />
-                    {[-6.5, 6.5].map(x => <g key={x} transform={`translate(${x} -2)`} className="command-drone-rotor"><circle r="2.6" /><path d="M-2.2 0H2.2M0 -2.2V2.2" /></g>)}
-                    <circle r="1.2" className="command-drone-camera" />
-                  </g>
+                  <circle r="5.4" />
+                  <path d="M 0 -3 L 2.1 2.2 L 0 1.2 L -2.1 2.2 Z" />
                 </g>
                 <text x="3" y="96" className="mission-map-caption">
                   ROUTE DE CANEVAS · SANS GPS · SANS FOND CARTOGRAPHIQUE
@@ -10319,9 +10267,12 @@ function MissionOperationsView({
         </section>
       </div>
       <FlightCommandDeck
+        design={flightDesignProfile ? { ...flightDesignProfile, configuration: { ...flightDesignProfile.configuration, ...config } } : undefined}
         demoState={demoState}
         videoState={videoState}
         telemetryState={telemetryState}
+        telemetry={telemetry}
+        telemetrySource={telemetrySource}
         activeWaypoint={activeWaypoint}
         waypoints={waypoints}
         missionChecks={missionChecks.map(check => ({
@@ -10336,10 +10287,14 @@ function MissionOperationsView({
         missionDistanceKm={missionDistanceKm}
         enduranceH={simulation.enduranceH}
         batteryWh={config.batteryWh}
+        missionPlan={missionPlan}
+        environment={config.missionEnvironment ?? { ambientC: 20, windKmh: config.windSpeedKmh, emiLevel: 0 }}
         operatorApproved={operatorApproved}
         onCommand={runLocalOperation}
         onLoadDemoPlan={activateLocalControl}
         onOpenBuilder={onOpenBuilder}
+        onMissionPlanChange={plan => setConfig({ ...config, missionPlan: plan })}
+        onEnvironmentChange={environment => setConfig({ ...config, missionEnvironment: environment })}
       />
       <div className="mission-live-disclaimer">
         <Info size={15} />
@@ -10399,6 +10354,108 @@ function IdentityConnections() {
   );
 }
 
+/** Glyphe d'aperçu par catégorie : remplace la ligne de texte froide du catalogue. */
+function MaterialGlyph({ category }: { category?: DronePartCategory }) {
+  const stroke = "currentColor";
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+      <g fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
+        {category === "airframe" && (
+          <>
+            <path d="M6 26h36" />
+            <path d="M24 12v22" />
+            <path d="M14 20h20" />
+            <path d="M10 34h28" />
+          </>
+        )}
+        {category === "propulsion" && (
+          <>
+            <circle cx="24" cy="24" r="13" />
+            <circle cx="24" cy="24" r="3.6" />
+            <path d="M24 11v9M24 28v9M11 24h9M28 24h9" />
+          </>
+        )}
+        {category === "energy" && (
+          <>
+            <rect x="9" y="15" width="26" height="18" rx="3" />
+            <path d="M35 20h4v8h-4" />
+            <path d="M15 24h14" />
+          </>
+        )}
+        {category === "avionics" && (
+          <>
+            <rect x="14" y="14" width="20" height="20" rx="2.5" />
+            <rect x="20" y="20" width="8" height="8" rx="1.4" />
+            <path d="M14 18H9M14 24H9M14 30H9M34 18h5M34 24h5M34 30h5M18 14V9M24 14V9M30 14V9M18 34v5M24 34v5M30 34v5" />
+          </>
+        )}
+        {category === "payload" && (
+          <>
+            <rect x="9" y="16" width="22" height="15" rx="3" />
+            <circle cx="20" cy="23.5" r="5.4" />
+            <circle cx="20" cy="23.5" r="2" />
+            <path d="M31 21h8v5h-8" />
+          </>
+        )}
+        {category === "landing-gear" && (
+          <>
+            <path d="M14 11l5 15M34 11l-5 15" />
+            <path d="M9 36h30" />
+            <path d="M16 26h16" />
+          </>
+        )}
+        {category === "safety" && (
+          <>
+            <path d="M24 9c9 0 15 5 15 11H9c0-6 6-11 15-11Z" />
+            <path d="M13 20l11 17 11-17" />
+            <path d="M24 20v17" />
+          </>
+        )}
+        {category === "hardware" && (
+          <>
+            <circle cx="18" cy="18" r="5" />
+            <circle cx="31" cy="31" r="5" />
+            <path d="M21.5 21.5l6 6" />
+          </>
+        )}
+        {!category && (
+          <>
+            <path d="M24 9l13 7.5v15L24 39l-13-7.5v-15Z" />
+            <path d="M11 16.5l13 7.5 13-7.5M24 24v15" />
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
+
+/** Profil filaire 3D associé à la catégorie de matériel affichée. */
+function wireModelForCategory(category?: DronePartCategory): WireModelKind {
+  switch (category) {
+    case "airframe":
+      return "chassis";
+    case "propulsion":
+      return "propulsion";
+    case "energy":
+      return "energy";
+    case "avionics":
+      return "navigation";
+    case "payload":
+      return "payload";
+    case "landing-gear":
+    case "safety":
+      return "structure";
+    default:
+      return "generic";
+  }
+}
+
+const materialSourceLabel: Record<string, string> = {
+  manufacturer: "FABRICANT",
+  user: "PERSONNALISÉ",
+  concept: "CONCEPT",
+};
+
 function MaterialsAssemblyView({
   config,
   setConfig,
@@ -10423,13 +10480,13 @@ function MaterialsAssemblyView({
   const selected = allItems.find(item => item.id === selectedId) ?? filtered[0] ?? null;
   const updateInstalled = (next: InstalledMaterial[]) =>
     setConfig({ ...config, installedMaterials: next, constructionMassKg: installedPartsMassKg(next) });
-  const addToAssembly = (item: DronePartDefinition) => {
+  const addToAssembly = (item: DronePartDefinition | InstalledMaterial) => {
     const existing = installed.find(entry => entry.id === item.id);
     if (existing) {
       updateInstalled(installed.map(entry => entry.id === item.id ? { ...entry, quantity: (entry.quantity ?? 1) + 1 } : entry));
       return;
     }
-    updateInstalled([...installed, { ...item, quantity: item.quantity ?? 1 }]);
+    updateInstalled([...installed, { ...item, quantity: item.quantity ?? 1 } as InstalledMaterial]);
   };
   const removeFromAssembly = (id: string) => updateInstalled(installed.filter(item => item.id !== id));
   const addCustomPart = () => {
@@ -10470,8 +10527,65 @@ function MaterialsAssemblyView({
         <select aria-label="Filtrer par source" value={source} onChange={event => setSource(event.target.value as typeof source)}><option value="all">Toutes les sources</option><option value="manufacturer">Fabricant</option><option value="concept">Concept / générique</option><option value="user">Personnalisé</option></select>
       </section>
       <div className="materials-layout">
-        <section className="panel material-catalog-panel"><div className="panel-header"><div><p className="eyebrow">CATALOGUE UNIFIÉ</p><h3>Composants disponibles</h3></div><span className="calculated-badge">{filtered.length} résultat(s)</span></div><div className="material-catalog-list">{filtered.map(item => <button key={item.id} className={`material-catalog-row ${selected?.id === item.id ? "is-selected" : ""}`} onClick={() => setSelectedId(item.id)}><span><strong>{item.label}</strong><small>{item.category ? dronePartCategories.find(categoryItem => categoryItem.id === item.category)?.label : "Composant"} · {item.manufacturer ?? "Concept AeroMind"}</small></span><span><b>{item.massKg.toFixed(3)} kg</b><small>{item.catalogSource === "manufacturer" ? "FABRICANT" : item.catalogSource === "user" ? "PERSONNALISÉ" : "CONCEPT"}</small></span></button>)}</div></section>
-        <aside className="panel material-detail-panel">{selected ? <><div className="panel-header"><div><p className="eyebrow">FICHE D’IDENTIFICATION</p><h3>{selected.label}</h3></div><span className={`material-status status-${selected.manufacturerDataStatus ?? "estimate"}`}>{selected.manufacturerDataStatus === "verified" ? "SOURCE VÉRIFIÉE" : selected.manufacturerDataStatus === "partial" ? "SOURCE PARTIELLE" : "À QUALIFIER"}</span></div><dl className="material-detail-list"><div><dt>Fabricant</dt><dd>{selected.manufacturer ?? "Non renseigné"}</dd></div><div><dt>Référence / SKU</dt><dd>{selected.partNumber ?? "Non renseignée"}</dd></div><div><dt>Identifiant physique</dt><dd>{selected.physicalId ?? "À attribuer à la réception"} · {selected.physicalStatus === "inspected" ? "inspecté" : selected.physicalStatus === "received" ? "réceptionné" : "non vérifié"}</dd></div><div><dt>Masse unitaire</dt><dd>{selected.massKg.toFixed(3)} kg · quantité {selected.quantity ?? 1}</dd></div><div><dt>Dimensions</dt><dd>{selected.dimensions ?? "À relever sur pièce ou dans la fiche technique"}</dd></div><div><dt>Interfaces d’assemblage</dt><dd>{selected.interfaces ?? "À documenter : perçages, connectique, enveloppe et fixations"}</dd></div><div><dt>Électricité / énergie</dt><dd>{selected.electrical ?? "Non renseigné — validation fabricant nécessaire"}</dd></div></dl><div className="material-detail-actions"><button className="primary-button" onClick={() => addToAssembly(selected)}>Ajouter à la nomenclature</button>{installed.some(item => item.id === selected.id) && <button className="secondary-button" onClick={() => removeFromAssembly(selected.id)}>Retirer de l’assemblage</button>}{selected.productUrl && <a className="secondary-button" href={selected.productUrl} target="_blank" rel="noreferrer">Ouvrir la source fabricant</a>}</div><p className="inspector-note"><Info size={15} /> Une référence catalogue ne prouve pas la présence physique. Pour passer au statut matériel identifiable, renseignez l’identifiant de pièce, la fiche fabricant, la photo ou le relevé, puis faites valider la réception.</p></> : <p className="section-description">Aucun composant ne correspond à la recherche.</p>}</aside>
+        <section className="panel material-catalog-panel"><div className="panel-header"><div><p className="eyebrow">CATALOGUE UNIFIÉ</p><h3>Composants disponibles</h3></div><span className="calculated-badge">{filtered.length} résultat(s)</span></div><div className="material-card-grid">
+            {filtered.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className={`material-preview-card tone-${item.catalogSource ?? "concept"} ${selected?.id === item.id ? "is-selected" : ""}`}
+                aria-pressed={selected?.id === item.id}
+                onClick={() => setSelectedId(item.id)}
+              >
+                <span className="material-preview-visual" aria-hidden="true">
+                  <MaterialGlyph category={item.category} />
+                  <i className="material-preview-scan" />
+                </span>
+                <span className="material-preview-copy">
+                  <strong>{item.label}</strong>
+                  <small>
+                    {item.category
+                      ? dronePartCategories.find(categoryItem => categoryItem.id === item.category)?.label
+                      : "Composant"}{" "}
+                    · {item.manufacturer ?? "Concept AeroMind"}
+                  </small>
+                  <span className="material-preview-meta">
+                    <b>{item.massKg.toFixed(3)} kg</b>
+                    <em>{materialSourceLabel[item.catalogSource ?? "concept"] ?? "CONCEPT"}</em>
+                    <i
+                      className={
+                        item.manufacturerDataStatus === "verified"
+                          ? "is-verified"
+                          : item.manufacturerDataStatus === "partial"
+                            ? "is-partial"
+                            : "is-estimate"
+                      }
+                    >
+                      {item.manufacturerDataStatus === "verified"
+                        ? "SOURCE VÉRIFIÉE"
+                        : item.manufacturerDataStatus === "partial"
+                          ? "SOURCE PARTIELLE"
+                          : "À QUALIFIER"}
+                    </i>
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div></section>
+        <aside className="panel material-detail-panel">{selected ? <><div className="panel-header"><div><p className="eyebrow">FICHE D’IDENTIFICATION</p><h3>{selected.label}</h3></div><span className={`material-status status-${selected.manufacturerDataStatus ?? "estimate"}`}>{selected.manufacturerDataStatus === "verified" ? "SOURCE VÉRIFIÉE" : selected.manufacturerDataStatus === "partial" ? "SOURCE PARTIELLE" : "À QUALIFIER"}</span></div><WireframeViewer
+            model={wireModelForCategory(selected.category)}
+            label={selected.label}
+            caption={`Volume filaire 3D · ${selected.partNumber ?? "référence à attribuer"} · ${(selected.manufacturer ?? "Concept AeroMind").toUpperCase()}`}
+            accent={
+              selected.category === "propulsion"
+                ? "#a9b7c2"
+                : selected.category === "payload"
+                  ? "#f4be4f"
+                  : selected.category === "energy"
+                    ? "#6fe0ad"
+                    : "#48d3f0"
+            }
+          />
+          <dl className="material-detail-list"><div><dt>Fabricant</dt><dd>{selected.manufacturer ?? "Non renseigné"}</dd></div><div><dt>Référence / SKU</dt><dd>{selected.partNumber ?? "Non renseignée"}</dd></div><div><dt>Identifiant physique</dt><dd>{selected.physicalId ?? "À attribuer à la réception"} · {selected.physicalStatus === "inspected" ? "inspecté" : selected.physicalStatus === "received" ? "réceptionné" : "non vérifié"}</dd></div><div><dt>Masse unitaire</dt><dd>{selected.massKg.toFixed(3)} kg · quantité {selected.quantity ?? 1}</dd></div><div><dt>Dimensions</dt><dd>{selected.dimensions ?? "À relever sur pièce ou dans la fiche technique"}</dd></div><div><dt>Interfaces d’assemblage</dt><dd>{selected.interfaces ?? "À documenter : perçages, connectique, enveloppe et fixations"}</dd></div><div><dt>Électricité / énergie</dt><dd>{selected.electrical ?? "Non renseigné — validation fabricant nécessaire"}</dd></div></dl><div className="material-detail-actions"><button className="primary-button" onClick={() => addToAssembly(selected)}>Ajouter à la nomenclature</button>{installed.some(item => item.id === selected.id) && <button className="secondary-button" onClick={() => removeFromAssembly(selected.id)}>Retirer de l’assemblage</button>}{selected.productUrl && <a className="secondary-button" href={selected.productUrl} target="_blank" rel="noreferrer">Ouvrir la source fabricant</a>}</div><p className="inspector-note"><Info size={15} /> Une référence catalogue ne prouve pas la présence physique. Pour passer au statut matériel identifiable, renseignez l’identifiant de pièce, la fiche fabricant, la photo ou le relevé, puis faites valider la réception.</p></> : <p className="section-description">Aucun composant ne correspond à la recherche.</p>}</aside>
       </div>
       <div className="materials-layout materials-bottom-layout"><section className="panel"><div className="panel-header"><div><p className="eyebrow">NOUVELLE RÉFÉRENCE</p><h3>Ajouter un composant personnalisé</h3></div><Plus size={16} className="muted-icon" /></div><div className="materials-custom-form"><input placeholder="Nom du composant" value={custom.label} onChange={event => setCustom({ ...custom, label: event.target.value })} /><input placeholder="Fabricant" value={custom.manufacturer} onChange={event => setCustom({ ...custom, manufacturer: event.target.value })} /><input placeholder="Référence / numéro de pièce" value={custom.partNumber} onChange={event => setCustom({ ...custom, partNumber: event.target.value })} /><input placeholder="ID physique / lot" value={custom.physicalId} onChange={event => setCustom({ ...custom, physicalId: event.target.value })} /><input type="number" min="0" step="0.001" placeholder="Masse (kg)" value={custom.massKg} onChange={event => setCustom({ ...custom, massKg: event.target.value })} /><button className="secondary-button" onClick={addCustomPart}>Créer la fiche</button></div></section><section className="panel"><div className="panel-header"><div><p className="eyebrow">NOMENCLATURE ACTIVE</p><h3>Assemblage du projet</h3></div><span className="calculated-badge">{installed.length} ligne(s)</span></div>{installed.length ? <div className="assembly-bom-list">{installed.map(item => <div key={item.id}><span><strong>{item.label}</strong><small>{item.partNumber ?? "Sans référence"} · ID {item.physicalId ?? "à attribuer"} · {item.quantity ?? 1} × {item.massKg.toFixed(3)} kg</small></span><button className="text-button" onClick={() => removeFromAssembly(item.id)}>Retirer</button></div>)}</div> : <p className="section-description">Ajoutez des composants depuis le catalogue pour constituer la nomenclature active.</p>}</section></div>
     </div>
@@ -10546,7 +10660,7 @@ function OperationsView({
   ]);
   const auditMutation = trpc.auditEvents.record.useMutation();
   const auditQuery = trpc.auditEvents.list.useQuery(activeProjectId, {
-    enabled: authenticated && remoteReady && /^\d+$/.test(activeProjectId),
+    enabled: authenticated && remoteReady && !activeProjectId.startsWith("project-"),
     retry: false,
   });
   const [events, setEvents] = useState<string[]>([
@@ -10560,7 +10674,7 @@ function OperationsView({
         ...current,
       ].slice(0, 6)
     );
-    if (authenticated && remoteReady && /^\d+$/.test(activeProjectId)) {
+    if (authenticated && remoteReady && !activeProjectId.startsWith("project-")) {
       auditMutation.mutate(
         {
           id: activeProjectId,
@@ -10591,14 +10705,114 @@ function OperationsView({
   const [uploadState, setUploadState] = useState("Aucun fichier en quarantaine");
   const [cfdState, setCfdState] = useState("Runtime OpenFOAM non vérifié");
   const [certificate, setCertificate] = useState<{ id: string; status: string } | null>(null);
+  // Séquence d'authentification asynchrone simulée : aucune clé privée, aucun
+  // jeton réel et aucun appel d'autorisation externe ne sont produits.
+  const authorizationStages = [
+    "Assemblage de l’en-tête JWT et des revendications",
+    "Signature asymétrique ES256 (simulation)",
+    "Validation de l’émetteur, de l’audience et du nonce",
+    "Résolution JWKS et contrôle d’horloge",
+    "Calcul des droits opérateur et du périmètre mission",
+    "Scellement du dossier d’autorisation",
+  ];
+  const [authProgressPct, setAuthProgressPct] = useState(0);
+  const [authStageIndex, setAuthStageIndex] = useState(-1);
+  const [authSequenceState, setAuthSequenceState] = useState<
+    "idle" | "running" | "done" | "refused"
+  >("idle");
+  const authTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (authTimerRef.current !== null) window.clearInterval(authTimerRef.current);
+    },
+    []
+  );
+  const runAuthorizationSequence = () => {
+    if (authTimerRef.current !== null) window.clearInterval(authTimerRef.current);
+    setAuthSequenceState("running");
+    setAuthProgressPct(0);
+    setAuthStageIndex(0);
+    record(
+      "Séquence d’authentification JWT lancée · simulation locale, aucun jeton réel émis"
+    );
+    let step = 0;
+    authTimerRef.current = window.setInterval(() => {
+      step += 1;
+      const index = Math.min(step - 1, authorizationStages.length - 1);
+      setAuthStageIndex(index);
+      setAuthProgressPct(
+        Math.min(100, Math.round((step / authorizationStages.length) * 100))
+      );
+      record(`JWT · ${authorizationStages[index]}`);
+      if (step >= authorizationStages.length) {
+        if (authTimerRef.current !== null) window.clearInterval(authTimerRef.current);
+        authTimerRef.current = null;
+        setAuthSequenceState("done");
+        setAuthorizationState("requested");
+        record("Dossier d’autorisation transmis · décision humaine requise");
+      }
+    }, 320);
+  };
   const requestFlightAuthorization = () => {
     if (!authenticated || !canLaunchMission(plan)) {
-      record(!authenticated ? "Autorisation refusée · session OIDC requise" : "Autorisation refusée · checklist pré-vol bloquante");
+      if (authTimerRef.current !== null) window.clearInterval(authTimerRef.current);
+      authTimerRef.current = null;
+      setAuthSequenceState("refused");
+      setAuthProgressPct(0);
+      setAuthStageIndex(-1);
+      record(
+        !authenticated
+          ? "Autorisation refusée · session OIDC requise"
+          : "Autorisation refusée · checklist pré-vol bloquante"
+      );
       return;
     }
-    setAuthorizationState("requested");
-    record("Dossier d’autorisation transmis · décision humaine requise");
+    runAuthorizationSequence();
   };
+  // Flux de session continu : simule une activité logicielle intense en
+  // arrière-plan (liaison, trames, quarantaine, scellement de preuve).
+  const [systemFeed, setSystemFeed] = useState<
+    Array<{ id: string; at: string; line: string; tone: string }>
+  >([
+    {
+      id: "SYS-000",
+      at: new Date().toLocaleTimeString("fr-FR"),
+      line: "Journal de session initialisé · supervision humaine active",
+      tone: "neutral",
+    },
+  ]);
+  useEffect(() => {
+    const templates: Array<[string, string]> = [
+      [`Télémétrie lecture seule · ${(12 + Math.random() * 8).toFixed(1)} trames/s tamponnées`, "cyan"],
+      ["Liaison locale · qualité de canal stable, latence nominale", "green"],
+      ["Validation de payload · empreinte SHA-256 recalculée en quarantaine", "violet"],
+      [`Réseau · ${(0.4 + Math.random() * 1.4).toFixed(2)} Mo/s entrants, 0 sortie actionneur`, "amber"],
+      ["Garde-fou · frontière de contrôle vérifiée, sorties matérielles rejetées", "green"],
+      ["Preuve interne · horodatage du dossier de revue mis à jour", "violet"],
+      [`Enveloppe énergie · réserve modélisée ${(14 + Math.random() * 6).toFixed(1)} %`, "amber"],
+      ["Journal d’audit · événement métier sérialisé, aucune transmission externe", "cyan"],
+      ["Sécurité · rotation des tampons de session, aucune clé persistée", "violet"],
+      ["Télémétrie synthétique · recalage du modèle de vol local", "cyan"],
+    ];
+    let counter = 0;
+    const push = () => {
+      counter += 1;
+      const [line, tone] = templates[counter % templates.length];
+      setSystemFeed(current =>
+        [
+          {
+            id: `SYS-${String(counter).padStart(3, "0")}`,
+            at: new Date().toLocaleTimeString("fr-FR"),
+            line,
+            tone,
+          },
+          ...current,
+        ].slice(0, 14)
+      );
+    };
+    const timer = window.setInterval(push, 1400);
+    return () => window.clearInterval(timer);
+  }, []);
   const approveFlightAuthorization = async () => {
     try {
       const response = await fetch("/api/auth/oidc/me", { credentials: "include" });
@@ -10656,7 +10870,7 @@ function OperationsView({
       <section className="panel operations-command-center" aria-label="Centre opérationnel AeroMind">
         <div className="panel-header"><div><p className="eyebrow">CENTRE OPÉRATIONNEL AEROMIND · ADMINISTRATION HUMAINE</p><h3>Autorisation, preuve et essais</h3></div><span className="calculated-badge">SORTIES PHYSIQUES BLOQUÉES</span></div>
         <div className="operations-command-grid">
-          <div><strong>Autorisation de vol</strong><span className={`ops-state ops-state-${authorizationState}`}>{authorizationState === "draft" ? "BROUILLON" : authorizationState === "requested" ? "EN ATTENTE SUPER-ADMIN" : "APPROUVÉE · SIMULATION"}</span><small>Le dossier est traçable ; aucune approbation ne déclenche un aéronef réel.</small><div className="operation-actions"><button className="secondary-button" onClick={requestFlightAuthorization} disabled={authorizationState !== "draft"}>Demander l’autorisation</button><button className="primary-button" onClick={() => void approveFlightAuthorization()} disabled={authorizationState !== "requested"}>Approuver (Super-Admin)</button></div></div>
+          <div><strong>Autorisation de vol</strong><span className={`ops-state ops-state-${authorizationState}`}>{authorizationState === "draft" ? "BROUILLON" : authorizationState === "requested" ? "EN ATTENTE SUPER-ADMIN" : "APPROUVÉE · SIMULATION"}</span><small>Le dossier est traçable ; aucune approbation ne déclenche un aéronef réel.</small><div className={`authorization-progress is-${authSequenceState}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={authProgressPct} aria-label="Progression de la séquence d’authentification JWT simulée"><div className="authorization-progress-track"><i style={{ width: `${authProgressPct}%` }} /></div><div className="authorization-progress-meta"><span>{authSequenceState === "idle" ? "Séquence d’authentification inactive" : authSequenceState === "refused" ? "Séquence interrompue · prérequis manquant" : authSequenceState === "done" ? "Chaîne JWT simulée validée" : authorizationStages[Math.max(0, authStageIndex)]}</span><b>{authProgressPct}%</b></div><div className="authorization-stages">{authorizationStages.map((stage, index) => <span key={stage} className={authSequenceState === "done" || index < authStageIndex ? "is-done" : authSequenceState === "running" && index === authStageIndex ? "is-current" : ""}><i />{stage}</span>)}</div><small className="authorization-disclaimer">Chaîne cryptographique simulée localement : aucun jeton n’est émis, aucune clé privée n’est manipulée et aucune décision automatique n’est prise.</small></div><div className="operation-actions"><button className="secondary-button" onClick={requestFlightAuthorization} disabled={authorizationState !== "draft" || authSequenceState === "running"}>{authSequenceState === "running" ? "Séquence en cours…" : "Demander l’autorisation"}</button><button className="primary-button" onClick={() => void approveFlightAuthorization()} disabled={authorizationState !== "requested"}>Approuver (Super-Admin)</button></div></div>
           <div><strong>Certification AeroMind.IA</strong><span className="ops-state">{certificate?.status || "NON ÉMISE"}</span><small>Certificat limité au niveau effectivement testé, sans déclaration réglementaire implicite.</small><button className="secondary-button" onClick={issueEvidenceCertificate}>Générer le dossier de preuve</button>{certificate && <code className="ops-certificate">{certificate.id}</code>}</div>
           <div><strong>CFD OpenFOAM isolée</strong><span className="ops-state">{cfdState}</span><small>Le cas est préparé séparément ; aucun résultat n’est présenté comme mesuré sans runtime disponible.</small><button className="secondary-button" onClick={() => void prepareCfdCase()}>Préparer le cas CFD</button></div>
           <div><strong>Téléversement en quarantaine</strong><span className="ops-state">{uploadState}</span><small>Hash et analyse avant tout usage. Aucun envoi vers un contrôleur ou un aéronef.</small><label className="secondary-button ops-upload"><Upload size={14} /> Déposer un artefact<input type="file" hidden onChange={event => { const file = event.target.files?.[0]; if (file) { setUploadState(`${file.name} · quarantaine · analyse requise`); record(`Artefact placé en quarantaine · ${file.name}`); } }} /></label></div>
@@ -10805,6 +11019,27 @@ function OperationsView({
               </div>
             ))}
           </div>
+          <div
+            className="session-live-feed"
+            aria-live="polite"
+            aria-label="Flux continu de journaux système simulés"
+          >
+            <div className="session-live-heading">
+              <span className="live-dot" />
+              <strong>FLUX SYSTÈME CONTINU</strong>
+              <small>{systemFeed.length} lignes · simulation locale</small>
+            </div>
+            <div className="session-live-rows">
+              {systemFeed.map(item => (
+                <div key={item.id} className={`session-live-row tone-${item.tone}`}>
+                  <span className="event-pulse" />
+                  <code>{item.at}</code>
+                  <span>{item.line}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="inspector-note">
             <Info size={15} />
             <span>
@@ -11244,7 +11479,7 @@ export default function Home() {
     enabled: Boolean(
       authQuery.data &&
         serverProjectsQuery.isSuccess &&
-        /^\d+$/.test(activeProjectId)
+        !activeProjectId.startsWith("project-")
     ),
     retry: false,
   });
@@ -11254,7 +11489,7 @@ export default function Home() {
       enabled: Boolean(
         authQuery.data &&
           serverProjectsQuery.isSuccess &&
-          /^\d+$/.test(activeProjectId)
+          !activeProjectId.startsWith("project-")
       ),
       retry: false,
     }
@@ -11263,7 +11498,7 @@ export default function Home() {
     enabled: Boolean(
       authQuery.data &&
         serverProjectsQuery.isSuccess &&
-        /^\d+$/.test(activeProjectId)
+        !activeProjectId.startsWith("project-")
     ),
     retry: false,
   });
@@ -11283,6 +11518,10 @@ export default function Home() {
   const [actions, setActions] = useState<Record<string, ActionState>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // État global d'armement virtuel : il suit l'interface entière (barre
+  // supérieure, poste de commandement, couches de vision) et ne peut jamais
+  // autoriser une sortie matérielle.
+  const [simulationArmed, setSimulationArmed] = useState(false);
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
@@ -11365,14 +11604,25 @@ export default function Home() {
           payload,
         });
       }
-      if (!authQuery.data) {
-        // Le mode non authentifié persiste localement uniquement.
-        setSaveState("saved");
+      if (!authQuery.data && localServerHydrated.current) {
+        const timer = window.setTimeout(() => {
+          void fetch("/api/local/workspace", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workspace: payload }),
+          })
+            .then(response => {
+              if (!response.ok) throw new Error("local workspace save failed");
+              setSaveState("saved");
+            })
+            .catch(() => setSaveState("saved"));
+        }, 450);
+        return () => window.clearTimeout(timer);
       }
       if (
         authQuery.data &&
         serverProjectsQuery.isSuccess &&
-        /^\d+$/.test(activeProjectId)
+        !activeProjectId.startsWith("project-")
       ) {
         if (skipServerSave.current) {
           skipServerSave.current = false;
@@ -11500,10 +11750,31 @@ export default function Home() {
     setActiveView("overview");
   };
   const createProject = () => {
+    if (!authQuery.data) {
+      setAction("project", {
+        status: "error",
+        message: "Connexion Microsoft / SSO obligatoire avant de créer un projet.",
+        retry: () => window.location.assign("/api/auth/oidc/login"),
+      });
+      return;
+    }
+    if (!serverProjectsQuery.isSuccess) {
+      setAction("project", { status: "loading", message: "Vérification de l’espace authentifié…" });
+      return;
+    }
     setNewProjectName(`Nouveau projet ${projects.length + 1}`);
     setCreateProjectDialogOpen(true);
   };
   const confirmCreateProject = async () => {
+    if (!authQuery.data || !serverProjectsQuery.isSuccess) {
+      setCreateProjectDialogOpen(false);
+      setAction("project", {
+        status: "error",
+        message: "Connexion Microsoft / SSO obligatoire avant de créer un projet.",
+        retry: () => window.location.assign("/api/auth/oidc/login"),
+      });
+      return;
+    }
     const requestedName = newProjectName;
     setCreateProjectDialogOpen(false);
     const id = `project-${Date.now()}`;
@@ -11531,6 +11802,17 @@ export default function Home() {
           requirements: fresh.requirements,
           runId: fresh.runId,
         });
+        if (
+          !created ||
+          typeof created !== "object" ||
+          !("id" in created) ||
+          !("project" in created) ||
+          !("config" in created) ||
+          !("requirements" in created) ||
+          !("runId" in created)
+        ) {
+          throw new Error("API métier sans persistance de projet configurée");
+        }
         fresh = created as unknown as ProjectRecord;
         skipServerSave.current = true;
         void serverProjectsQuery.refetch();
@@ -11574,7 +11856,7 @@ export default function Home() {
     const isRemoteProject = Boolean(
       authQuery.data &&
         serverProjectsQuery.isSuccess &&
-        /^\d+$/.test(activeProjectId)
+        !activeProjectId.startsWith("project-")
     );
     if (isRemoteProject) {
       try {
@@ -11626,7 +11908,7 @@ export default function Home() {
     if (
       !authQuery.data ||
       !serverProjectsQuery.isSuccess ||
-      !/^\d+$/.test(activeProjectId)
+      !!activeProjectId.startsWith("project-")
     )
       return;
     try {
@@ -11661,16 +11943,8 @@ export default function Home() {
     setActions(current => ({ ...current, [id]: action }));
   const runSimulationNow = () => {
     if (isRunning) return;
-    const simulationConfig = config.airframe
-      ? config
-      : {
-          ...defaultConcept,
-          ...config,
-          airframe: "fixed-wing" as const,
-          motorCount: config.motorCount ?? 1,
-          designName: "Scénario local personnalisable",
-        };
-    if (!config.airframe) setConfig(simulationConfig);
+    if (!config.airframe || !config.motorCount) return;
+    const simulationConfig = config;
 
     setIsRunning(true);
     setAction("simulation", {
@@ -11689,7 +11963,7 @@ export default function Home() {
         if (
           authQuery.data &&
           serverProjectsQuery.isSuccess &&
-          /^\d+$/.test(activeProjectId)
+          !activeProjectId.startsWith("project-")
         ) {
           const persisted = await createSimulationMutation.mutateAsync({
             id: activeProjectId,
@@ -11731,15 +12005,14 @@ export default function Home() {
     }, 650);
   };
   const applyIndustrialReference = (reference: IndustrialDroneReference) => {
+    const canonical = industrialReferenceToDesign(reference);
     const next = normalizeConcept({
       ...config,
-      ...reference.configuration,
-      airframe:
-        reference.configuration.airframe === "multirotor"
-          ? "quadcopter"
-          : reference.configuration.airframe,
-      designName: `${reference.manufacturer} ${reference.model}`,
-      platformProfile: reference.id,
+      ...canonical.configuration,
+      airframe: canonical.key,
+      modelType: canonical.modelType,
+      designName: canonical.label,
+      platformProfile: canonical.id,
       constructionMassKg: 0,
       installedMaterials: [],
     });
@@ -11993,7 +12266,7 @@ export default function Home() {
       if (
         authQuery.data &&
         serverProjectsQuery.isSuccess &&
-        /^\d+$/.test(activeProjectId)
+        !activeProjectId.startsWith("project-")
       ) {
         const stored = await createReportMutation.mutateAsync({
           id: activeProjectId,
@@ -12066,7 +12339,7 @@ export default function Home() {
     setActiveView(keepStudioOpen ? "design-studio" : "tools");
     setAction("catalog", {
       status: "success",
-      message: `${design.label} chargé avec ses paramètres propres et ${requirementsForDroneProfile(design).length} exigences proposées. Elles restent personnalisables dans Exigences.`,
+      message: `${design.label} chargé après action humaine. Données synchronisées; ${requirementsForDroneProfile(design).length} exigences proposées, non approuvées et personnalisables dans Exigences.`,
     });
   };
   const viewTitle =
@@ -12229,6 +12502,19 @@ export default function Home() {
             <span className="breadcrumb-version">v{project.version}</span>
           </div>
           <div className="topbar-actions">
+            <span
+              className={`simulation-arm-badge ${simulationArmed ? "is-armed" : ""}`}
+              role="status"
+              aria-live="polite"
+              title={
+                simulationArmed
+                  ? "Scénario de simulation armé virtuellement : état d’interface et couches de vision uniquement. Aucun actionneur réel."
+                  : "Banc au sol simulé. Le flux de télémétrie continue de s’animer."
+              }
+            >
+              <span className="arm-state-dot" />
+              {simulationArmed ? "SIMULATION ARMÉE" : "SIMULATION DÉSARMÉE"}
+            </span>
             <span
               className={`autosave autosave-${saveState}`}
               title={
@@ -12408,6 +12694,8 @@ export default function Home() {
                               createCompatibleDemoMissionPlan(current),
                           }))
                         }
+                        simulationArmed={simulationArmed}
+                        onSimulationArmedChange={setSimulationArmed}
                       />
                     )}
                     {activeView === "report" && (
@@ -12510,7 +12798,7 @@ export default function Home() {
               >
                 <div className="project-create-dialog-head">
                   <div>
-                    <span className="eyebrow">WORKSPACE / INITIALISATION</span>
+                    <span className="eyebrow">WORKSPACE / INITIALISATION · SSO VALIDÉ</span>
                     <h2 id="project-create-title">
                       Créer un espace de travail
                     </h2>
@@ -12569,3 +12857,34 @@ export default function Home() {
     </div>
   );
 }
+import { ArtificialHorizon } from "../components/ArtificialHorizon";
+import { TelemetryStripChart } from "../components/TelemetryStripChart";
+import {
+  WireframeViewer,
+  type WireModelKind,
+} from "../components/WireframeViewer";
+import {
+  VisionShaderOverlay,
+  visionModes,
+  type VisionMode,
+} from "../components/VisionShaderOverlay";
+import {
+  advanceLiveFlight,
+  createLiveFlightState,
+  cruiseAltitudeTarget,
+  cruiseSpeedTarget,
+  describeLivePhase,
+  liveSeries,
+  setLiveArmed,
+  hasEnergyBudget,
+  usesSimulationDefaults,
+  type LiveFlightState,
+} from "../lib/liveSimulation";
+import {
+  LONG_RANGE_CATEGORY_CLASSIFICATION,
+  LONG_RANGE_CATEGORY_LABEL,
+  buildLongRangePreparationNote,
+  longRangeObservationSummary,
+  longRangeObservationVectors,
+  type LongRangeObservationVector,
+} from "../lib/longRangeObservation";

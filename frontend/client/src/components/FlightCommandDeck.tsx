@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   Bot,
   CheckCircle2,
@@ -14,6 +15,11 @@ import {
   Target,
   Wrench,
 } from "lucide-react";
+import type { DroneCatalogDesign } from "../lib/droneCatalog";
+import type { LocalMissionPlan, MissionEnvironment } from "../lib/aeroEngine";
+import type { MissionTelemetryFrame } from "../lib/missionBridge";
+import { PhysicalDroneModel } from "./PhysicalDroneModel";
+import { FlightOperationsModules } from "./FlightOperationsModules";
 
 type DeckCommand =
   | "start"
@@ -24,26 +30,19 @@ type DeckCommand =
   | "return"
   | "land"
   | "stop";
-
-type MissionCheck = {
-  severity: "pass" | "review" | "block";
-  message: string;
-};
-
-type Waypoint = {
-  id: string;
-  name: string;
-  altitudeM: number;
-  speedKmh: number;
-  action: string;
-};
+type MissionCheck = { severity: "pass" | "review" | "block"; message: string };
 
 export function FlightCommandDeck({
+  design,
   demoState,
   videoState,
   telemetryState,
+  telemetry,
+  telemetrySource,
   activeWaypoint,
   waypoints,
+  missionPlan,
+  environment,
   missionChecks,
   missionDistanceKm,
   enduranceH,
@@ -52,12 +51,19 @@ export function FlightCommandDeck({
   onCommand,
   onLoadDemoPlan,
   onOpenBuilder,
+  onMissionPlanChange,
+  onEnvironmentChange,
 }: {
+  design?: DroneCatalogDesign;
   demoState: string;
   videoState: string;
   telemetryState: string;
+  telemetry?: (MissionTelemetryFrame & { receivedAt?: number }) | null;
+  telemetrySource: "none" | "synthetic" | "wss";
   activeWaypoint: number;
-  waypoints: Waypoint[];
+  waypoints: LocalMissionPlan["waypoints"];
+  missionPlan: LocalMissionPlan;
+  environment: MissionEnvironment;
   missionChecks: MissionCheck[];
   missionDistanceKm: number;
   enduranceH: number;
@@ -66,18 +72,15 @@ export function FlightCommandDeck({
   onCommand: (command: DeckCommand) => void;
   onLoadDemoPlan: () => void;
   onOpenBuilder: () => void;
+  onMissionPlanChange: (plan: LocalMissionPlan) => void;
+  onEnvironmentChange: (environment: MissionEnvironment) => void;
 }) {
   const blocking = missionChecks.filter(check => check.severity === "block").length;
   const review = missionChecks.filter(check => check.severity === "review").length;
   const currentWaypoint = waypoints[activeWaypoint];
   const stateLabel: Record<string, string> = {
-    ready: "PRÊT",
-    running: "EN MISSION",
-    paused: "PAUSÉ",
-    hold: "MAINTIEN",
-    returning: "RETOUR DOMICILE",
-    "emergency-land": "ATTERRISSAGE",
-    stopped: "CLOS",
+    ready: "PRÊT", running: "EN MISSION", paused: "PAUSÉ", hold: "MAINTIEN",
+    returning: "RETOUR DOMICILE", "emergency-land": "ATTERRISSAGE", stopped: "CLOS",
   };
   const aiBrief = blocking
     ? "AeroMind recommande de corriger les contrôles bloquants avant toute lecture de scénario."
@@ -91,15 +94,9 @@ export function FlightCommandDeck({
         <div>
           <p className="eyebrow">06 / MISSION CONTROL FABRIC</p>
           <h3>Pont de commande opérationnel</h3>
-          <p className="flight-deck-subtitle">
-            Une vue de synthèse pour décider, observer, manipuler le scénario et documenter chaque action sans mélanger simulation et commande réelle.
-          </p>
+          <p className="flight-deck-subtitle">Télémétrie synthétique, vues tactiques locales et journal structuré; aucune confusion entre simulation, données reçues et commande réelle.</p>
         </div>
-        <div className="flight-deck-mode">
-          <span className="flight-deck-live-dot" />
-          <strong>SIMULATION LOCALE</strong>
-          <small>Contrat {demoState === "running" ? "en exécution" : "en attente"}</small>
-        </div>
+        <div className="flight-deck-mode"><span className="flight-deck-live-dot" /><strong>SIMULATION LOCALE</strong><small>Contrat {demoState === "running" ? "en exécution" : "en attente"}</small></div>
       </div>
 
       <div className="flight-deck-kpis">
@@ -110,12 +107,17 @@ export function FlightCommandDeck({
       </div>
 
       <div className="flight-deck-grid">
+        <div className="flight-drone-preview">
+          <div className="flight-deck-section-title"><span><Navigation size={15} /> Aéronef suivi</span><small>modèle physique paramétrique</small></div>
+          <PhysicalDroneModel design={design} status={demoState === "running" ? "flying" : demoState === "returning" ? "landing" : demoState === "paused" || demoState === "hold" ? "paused" : "idle"} compact />
+          <div className="flight-drone-readout"><span>CONFIGURATION ACTIVE</span><strong>{design?.label ?? "Profil local non sélectionné"}</strong><small>La visualisation reste bornée au scénario virtuel et ne commande aucun appareil.</small></div>
+        </div>
         <div className="flight-deck-command-surface">
           <div className="flight-deck-section-title"><span><Gauge size={15} /> Console de manipulation</span><small>actions locales auditées</small></div>
           <div className="flight-deck-command-matrix">
             <button className="flight-command-primary" onClick={() => onCommand("start")} disabled={!waypoints.length || !operatorApproved || blocking > 0 || !["ready", "stopped"].includes(demoState)} title={!operatorApproved ? "Cochez d’abord l’approbation de démonstration locale" : blocking ? "Corrigez les contrôles prévol bloquants" : !waypoints.length ? "Chargez un parcours local" : "Démarrer uniquement le scénario de simulation"}><Play size={15} /> {operatorApproved ? "Lancer la simulation" : "Approbation requise"}</button>
-            <button title={demoState === "running" ? "Mettre en pause le scénario local" : "Reprendre le scénario local"} onClick={() => onCommand(demoState === "running" ? "pause" : "resume")} disabled={!(["running", "paused", "hold"].includes(demoState))}><Pause size={15} /> {demoState === "running" ? "Pause" : "Reprendre"}</button>
-            <button title={activeWaypoint >= waypoints.length - 1 ? "Dernier point de la route atteint" : "Avancer d’un point dans la route simulée"} onClick={() => onCommand("waypoint")} disabled={!waypoints.length || ["ready", "stopped", "returning"].includes(demoState) || activeWaypoint >= waypoints.length - 1}><ArrowRight size={15} /> Point suivant</button>
+            <button title={demoState === "running" ? "Mettre en pause le scénario local" : "Reprendre le scénario local"} onClick={() => onCommand(demoState === "running" ? "pause" : "resume")} disabled={!( ["running", "paused", "hold"].includes(demoState))}><Pause size={15} /> {demoState === "running" ? "Pause" : "Reprendre"}</button>
+            <button title="Avancer d’un point dans la route simulée" onClick={() => onCommand("waypoint")} disabled={!waypoints.length || ["ready", "stopped", "returning"].includes(demoState) || activeWaypoint >= waypoints.length - 1}><ArrowRight size={15} /> Point suivant</button>
             <button title="Figer la progression de la démonstration locale au waypoint courant." onClick={() => onCommand("hold")} disabled={demoState !== "running"}><CircleDot size={15} /> Maintien simulé</button>
             <button title="Faire converger le scénario local vers son point de départ; n’envoie aucun ordre réel." onClick={() => onCommand("return")} disabled={!waypoints.length || ["ready", "stopped", "returning"].includes(demoState)}><Navigation size={15} /> Retour sûr</button>
             <button title="Passer le scénario local à l’état d’atterrissage simulé, sans actionneur réel." onClick={() => onCommand("land")} disabled={!waypoints.length || ["ready", "stopped", "returning"].includes(demoState)}><Target size={15} /> Atterrissage simulé</button>
@@ -126,10 +128,9 @@ export function FlightCommandDeck({
             <button className="flight-deck-stop" title="Clore la démonstration locale et remettre le scénario à l’arrêt." onClick={() => onCommand("stop")} disabled={["ready", "stopped"].includes(demoState)}>Clore la démonstration</button>
           </div>
         </div>
-
         <div className="flight-deck-ai-card">
           <div className="flight-deck-section-title"><span><Sparkles size={15} /> AEROMIND AI / FLIGHT BRIEF</span><small>moteur de règles + contexte projet</small></div>
-          <div className="flight-ai-status"><Bot size={18} /><div><strong>Analyse contextuelle active</strong><span>Vidéo {videoState === "live" ? "active" : "en attente"} · télémétrie {telemetryState === "connected" ? "reçue" : "lecture locale"}</span></div></div>
+          <div className="flight-ai-status"><Bot size={18} /><div><strong>Analyse contextuelle active</strong><span>Vidéo {videoState === "live" ? "active" : "en attente"} · télémétrie {telemetryState === "connected" ? "reçue (lecture seule)" : "simulation locale"}</span></div></div>
           <p>{aiBrief}</p>
           <div className="flight-ai-actions"><span><CheckCircle2 size={13} /> {missionChecks.length - blocking} contrôles exploitables</span><span><ShieldCheck size={13} /> garde-fous fermés</span></div>
         </div>
@@ -150,7 +151,9 @@ export function FlightCommandDeck({
           {missionChecks.slice(0, 4).map((check, index) => <div className={`flight-deck-check is-${check.severity}`} key={`${check.message}-${index}`}><span>{check.severity === "pass" ? "OK" : check.severity === "review" ? "REVUE" : "BLOC"}</span><p>{check.message}</p></div>)}
         </div>
       </div>
-      <div className="flight-deck-disclaimer"><ShieldCheck size={14} /> Toute action ci-dessus reste bornée à la simulation locale et à l’observation lecture seule. L’armement, les actionneurs, le téléversement et la commande réelle sont structurellement rejetés.</div>
+
+      <FlightOperationsModules demoState={demoState} activeWaypoint={activeWaypoint} waypoints={waypoints} missionPlan={missionPlan} environment={environment} enduranceH={enduranceH} batteryWh={batteryWh} telemetryState={telemetryState} telemetry={telemetry} telemetrySource={telemetrySource} onMissionPlanChange={onMissionPlanChange} onEnvironmentChange={onEnvironmentChange} />
+      <div className="flight-deck-disclaimer"><AlertTriangle size={14} /> Toute action et toute donnée générée ci-dessus restent bornées à la simulation locale ou à l’observation lecture seule. L’armement, les actionneurs, le téléversement de mission et les commandes réelles sont structurellement rejetés.</div>
     </section>
   );
 }

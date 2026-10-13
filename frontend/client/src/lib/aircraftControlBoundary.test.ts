@@ -17,6 +17,7 @@ describe("aircraft control boundary", () => {
     expect(CONTROL_BOUNDARY.hardwareControlEnabled).toBe(false);
     expect(CONTROL_BOUNDARY.telemetryWriteEnabled).toBe(false);
     expect(CONTROL_BOUNDARY.missionUploadEnabled).toBe(false);
+    expect(CONTROL_BOUNDARY.virtualArmingScope).toBe("simulation-only");
   });
 
   it.each(["actuator-write", "arm", "mission-upload"] as const)(
@@ -37,6 +38,34 @@ describe("aircraft control boundary", () => {
   it("allows observation only in hardware-readonly mode", () => {
     expect(authorizeControlCommand(command("observe"), "hardware-readonly").accepted).toBe(true);
     expect(authorizeControlCommand(command("simulation-hold"), "hardware-readonly").accepted).toBe(false);
+  });
+
+  it("accepts virtual arming inside the local simulation only", () => {
+    const armed = authorizeControlCommand(command("simulation-arm"), "simulation");
+    expect(armed.accepted).toBe(true);
+    const disarmed = authorizeControlCommand(command("simulation-disarm"), "simulation");
+    expect(disarmed.accepted).toBe(true);
+    expect(authorizeControlCommand(command("simulation-arm"), "hil").accepted).toBe(false);
+    expect(authorizeControlCommand(command("simulation-arm"), "hardware-readonly").accepted).toBe(false);
+    expect(authorizeControlCommand(command("simulation-disarm"), "hardware-readonly").accepted).toBe(false);
+    expect(authorizeControlCommand(command("simulation-arm"), "hil").reason).toMatch(/transport de simulation/i);
+  });
+
+  it("never turns virtual arming into a hardware arming path", () => {
+    expect(CONTROL_BOUNDARY.deniedCommands).toContain("arm");
+    const hardware = authorizeControlCommand(command("arm"), "hil");
+    expect(hardware.accepted).toBe(false);
+    expect(hardware.reason).toMatch(/aucune sortie de commande réelle/i);
+    const audit = createControlAuditEvent(
+      authorizeControlCommand(command("simulation-arm"), "simulation"),
+      "CTRL-ARM-SIM"
+    );
+    expect(audit).toMatchObject({
+      id: "CTRL-ARM-SIM",
+      command: "simulation-arm",
+      mode: "simulation",
+      accepted: true,
+    });
   });
 
   it("validates telemetry as read-only input", () => {

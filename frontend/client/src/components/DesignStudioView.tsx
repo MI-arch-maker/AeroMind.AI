@@ -43,6 +43,11 @@ import { droneCatalog, type DroneCatalogDesign } from "../lib/droneCatalog";
 import { dronePartCatalog, type DronePartDefinition } from "../lib/droneParts";
 import { manufacturerPartCatalog } from "../lib/manufacturerParts";
 import { ParametricDronePreview } from "./ParametricDronePreview";
+import { PhysicalDroneModel } from "./PhysicalDroneModel";
+import { EngineeringDronePlate } from "./EngineeringDronePlate";
+import { DroneBehaviorPanel } from "./DroneBehaviorPanel";
+import { PayloadMissionWorkbench } from "./PayloadMissionWorkbench";
+import "./design-studio-physical.css";
 
 type Tool = "select" | "pan" | "measure" | "annotate" | "cut";
 type ViewMode = "top" | "side" | "front";
@@ -75,6 +80,9 @@ type StudioPart = {
   interfaces?: string;
   catalogSource?: string;
   manufacturerDataStatus?: string;
+  dragAreaM2?: number;
+  powerDrawW?: number;
+  connectedTo?: string;
 };
 type Annotation = { id: string; x: number; y: number; text: string };
 type Snapshot = {
@@ -145,6 +153,9 @@ const kindLabels: Record<PartKind, string> = {
   avionics: "Avionique",
   "landing-gear": "Train",
 };
+const estimatedDragArea = (kind: PartKind) => ({ body: 0.012, wing: 0.035, payload: 0.014, motor: 0.006, avionics: 0.003, "landing-gear": 0.01 })[kind];
+const estimatedAuxPower = (kind: PartKind) => ({ body: 0, wing: 0, payload: 8, motor: 0, avionics: 4, "landing-gear": 0 })[kind];
+const defaultBus = (kind: PartKind) => kind === "payload" ? "BUS-PAYLOAD" : kind === "avionics" ? "BUS-DATA" : kind === "motor" ? "BUS-POWER" : "FRAME";
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 function starterPartsFor(
@@ -288,6 +299,9 @@ function materialToPart(
     interfaces: material.interfaces,
     catalogSource: material.catalogSource,
     manufacturerDataStatus: material.manufacturerDataStatus,
+    dragAreaM2: material.dragAreaM2 ?? estimatedDragArea(kind),
+    powerDrawW: material.powerDrawW ?? estimatedAuxPower(kind),
+    connectedTo: material.connectedTo ?? defaultBus(kind),
   };
 }
 function materialsSignature(materials?: InstalledMaterial[]) {
@@ -304,6 +318,9 @@ function materialsSignature(materials?: InstalledMaterial[]) {
       scale: item.scale ?? 1,
       manufacturer: item.manufacturer,
       partNumber: item.partNumber,
+      dragAreaM2: item.dragAreaM2 ?? null,
+      powerDrawW: item.powerDrawW ?? null,
+      connectedTo: item.connectedTo ?? null,
     }))
   );
 }
@@ -341,6 +358,9 @@ function partsToMaterials(parts: StudioPart[]): InstalledMaterial[] {
           : "concept",
     manufacturerDataStatus:
       part.manufacturerDataStatus === "verified" ? "verified" : "estimate",
+    dragAreaM2: part.dragAreaM2 ?? estimatedDragArea(part.kind),
+    powerDrawW: part.powerDrawW ?? estimatedAuxPower(part.kind),
+    connectedTo: part.connectedTo ?? defaultBus(part.kind),
     offsetX: Number((part.x - 50).toFixed(2)),
     offsetY: Number((part.y - 50).toFixed(2)),
     scale: part.scale,
@@ -402,6 +422,7 @@ export function DesignStudioView({
   const documentLayers = [...layerLabels, ...customLayers];
   const [tool, setTool] = useState<Tool>("select");
   const [view, setView] = useState<ViewMode>("top");
+  const [renderMode, setRenderMode] = useState<"3d" | "plan">("3d");
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
   const [gridSize, setGridSize] = useState(5);
@@ -1131,12 +1152,12 @@ export function DesignStudioView({
       </section>
       <div className="studio-header">
         <div>
-          <p className="eyebrow">ATELIER CAO / PARAMÉTRIQUE</p>
-          <h2>Studio de conception avancé</h2>
+          <p className="eyebrow">CONSTRUCTION INSPECTOR / CONFIGURATION CONTROL</p>
+          <h2>Inspecteur de construction avancé</h2>
           <p className="section-description">
-            Atelier local de conception préliminaire : document versionné,
-            composants, calques, contraintes, vues, accrochage, historique et
-            export d’ingénierie.
+            Poste d’ingénierie de configuration : nomenclature, calques,
+            contraintes, preuves de provenance, inspection 3D, historique et
+            export contrôlé.
           </p>
         </div>
         <div className="studio-header-actions">
@@ -1161,6 +1182,19 @@ export function DesignStudioView({
           />
         </div>
       </div>
+      <section className="construction-command-panel" aria-label="Console de contrôle de construction">
+        <div className="construction-command-heading">
+          <div><p className="eyebrow">INDUSTRIAL BUILD AUTHORITY / READINESS</p><h3>Tableau de maîtrise de la configuration</h3><span>La décision reste humaine · aucune pièce n’est certifiée automatiquement</span></div>
+          <div className={`construction-command-state ${activeProfile ? "is-live" : "is-waiting"}`}><i />{activeProfile ? "CONFIGURATION ACTIVE" : "EN ATTENTE D’ARCHITECTURE"}</div>
+        </div>
+        <div className="construction-command-kpis">
+          <div><small>RÉFÉRENCE CELLULE</small><strong>{activeProfile?.id ?? "—"}</strong><span>{activeProfile?.family ?? "Sélection requise"}</span></div>
+          <div><small>NOMENCLATURE</small><strong>{String(parts.length).padStart(2, "0")}</strong><span>{totalMass.toFixed(2)} kg déclarés</span></div>
+          <div><small>SOURCES FABRICANT</small><strong>{parts.filter(part => part.catalogSource === "manufacturer").length}/{parts.length || 0}</strong><span>références vérifiables</span></div>
+          <div><small>ÉTAT DE REVUE</small><strong>{parts.length && activeProfile ? "REVIEW" : "LOCKED"}</strong><span>validation humaine requise</span></div>
+        </div>
+        <div className="construction-control-rail"><span><b>01</b> CELLULE</span><i /><span><b>02</b> PIÈCES</span><i /><span><b>03</b> INTERFACES</span><i /><span><b>04</b> PREUVES</span><i /><span><b>05</b> REVUE</span></div>
+      </section>
       <div className="studio-engineering-reference">
         <div className="studio-reference-glyph" aria-hidden="true">
           <span />
@@ -1202,12 +1236,22 @@ export function DesignStudioView({
             </div>
             <strong className="calculated-badge">ID {activeProfile.id}</strong>
           </div>
-          <ParametricDronePreview
-            design={activeProfile}
-            construction={{ parts: parts.length, massKg: totalMass }}
-          />
+          <div className="studio-source-preview-3d">
+            <EngineeringDronePlate
+              design={activeProfile}
+              status="flying"
+              construction={{ parts: parts.length, massKg: totalMass }}
+            />
+          </div>
         </section>
       )}
+      <PayloadMissionWorkbench
+        installed={partsToMaterials(parts.filter(part => part.kind === "payload"))}
+        onInstall={id => {
+          const item = dronePartCatalog.find(part => part.id === id);
+          if (item) addCatalogPart(item);
+        }}
+      />
       <div className="studio-guide-console">
         <div>
           <span className="eyebrow">CONSOLE OPÉRATEUR / STUDIO</span>
@@ -1313,6 +1357,10 @@ export function DesignStudioView({
         </div>
       </div>
       <div className="studio-subtoolbar">
+        <div className="studio-view-tabs" role="group" aria-label="Mode de rendu de l’atelier">
+          <button className={renderMode === "3d" ? "is-active" : ""} onClick={() => setRenderMode("3d")}>3D · Assemblage</button>
+          <button className={renderMode === "plan" ? "is-active" : ""} onClick={() => setRenderMode("plan")}>Plan 2D</button>
+        </div>
         <div className="studio-view-tabs">
           {(["top", "side", "front"] as ViewMode[]).map(mode => (
             <button
@@ -1473,6 +1521,9 @@ export function DesignStudioView({
           </section>
         </aside>
         <section className="panel studio-canvas-panel">
+          {!activeProfile ? (
+            <div className="studio-unselected-state" role="status"><Box size={30} /><strong>Aucun drone actif dans le Studio</strong><span>Recherchez puis sélectionnez une architecture dans le registre ci-dessus pour initialiser le poste de construction.</span><em>USER ACTION REQUIRED · NO MODEL LOADED</em></div>
+          ) : renderMode === "plan" ? (
           <svg
             ref={stageRef}
             className="studio-svg-canvas"
@@ -1498,14 +1549,36 @@ export function DesignStudioView({
             }}
           >
             <defs>
-              <radialGradient id="studioPhysicalBackdrop" cx="50%" cy="44%" r="70%">
-                <stop offset="0" stopColor="#173b42" />
-                <stop offset="0.7" stopColor="#091f27" />
-                <stop offset="1" stopColor="#041218" />
-              </radialGradient>
+              <pattern
+                id="studio-grid-advanced"
+                width={gridSize * 2}
+                height={gridSize * 2}
+                patternUnits="userSpaceOnUse"
+              >
+                <path
+                  d={`M ${gridSize * 2} 0 L 0 0 0 ${gridSize * 2}`}
+                  fill="none"
+                  stroke="rgba(117,226,220,.14)"
+                  strokeWidth="1"
+                />
+              </pattern>
             </defs>
-            <rect width="1000" height="600" fill="url(#studioPhysicalBackdrop)" />
-            <ellipse cx="500" cy="470" rx="360" ry="42" fill="rgba(0,0,0,.28)" />
+            <rect width="1000" height="600" fill="#061319" />
+            <rect width="1000" height="600" fill="url(#studio-grid-advanced)" />
+            <line
+              x1="500"
+              y1="35"
+              x2="500"
+              y2="565"
+              className="studio-centerline"
+            />
+            <line
+              x1="35"
+              y1="300"
+              x2="965"
+              y2="300"
+              className="studio-centerline"
+            />
             {visibleParts.length ? (
               visibleParts.map(part => (
                 <g
@@ -1614,9 +1687,24 @@ export function DesignStudioView({
               SNAP {snap ? gridSize + "%" : "OFF"}
             </text>
           </svg>
+          ) : (
+            <div className="studio-physical-stage">
+              <div className="studio-physical-stage-hud"><span>ASSEMBLAGE PHYSIQUE · WEBGL</span><small>{visibleParts.length} pièces visibles · masse estimée {totalMass.toFixed(2)} kg · matériaux PBR</small></div>
+              <EngineeringDronePlate
+                design={activeProfile}
+                status="flying"
+                construction={{ parts: visibleParts.length, massKg: totalMass }}
+              />
+              <div className="studio-3d-selection-list" aria-label="Sélectionner une pièce pour la configurer">
+                {visibleParts.map(part => <button key={part.id} className={selectedId === part.id ? "is-active" : ""} onClick={() => setSelectedId(part.id)}><span>{part.label}</span><small>{part.massKg.toFixed(2)} kg · {part.connectedTo ?? defaultBus(part.kind)}</small></button>)}
+                {!visibleParts.length && <small>Ajoutez une pièce dans la palette pour commencer l’assemblage.</small>}
+              </div>
+            </div>
+          )}
+          <DroneBehaviorPanel configuration={config} context="studio" state="ASSEMBLAGE NUMÉRIQUE" />
           <div className="studio-canvas-footer">
             <span>
-              Vue : <strong>{view}</strong>
+              Vue : <strong>{renderMode === "3d" ? "3D isométrique" : view}</strong>
             </span>
             <span>
               Objet : <strong>{selected?.label ?? "aucun"}</strong>
@@ -1822,6 +1910,24 @@ export function DesignStudioView({
                   </select>
                 </label>
               </div>
+              <label className="studio-field">
+                Aire de traînée équivalente estimée · m²
+                <input type="number" min="0" step="0.001" value={selected.dragAreaM2 ?? estimatedDragArea(selected.kind)} onChange={event => changeSelected({ dragAreaM2: Math.max(0, Number(event.target.value)) }, "Aire de traînée mise à jour · estimation locale")} />
+              </label>
+              <label className="studio-field">
+                Puissance auxiliaire estimée · W
+                <input type="number" min="0" step="0.5" value={selected.powerDrawW ?? estimatedAuxPower(selected.kind)} onChange={event => changeSelected({ powerDrawW: Math.max(0, Number(event.target.value)) }, "Consommation auxiliaire mise à jour · estimation locale")} />
+              </label>
+              <label className="studio-field">
+                Bus logique simulé
+                <select value={selected.connectedTo ?? defaultBus(selected.kind)} onChange={event => changeSelected({ connectedTo: event.target.value }, "Connexion logique simulée mise à jour")}>
+                  <option value="FRAME">FRAME · structure</option>
+                  <option value="BUS-POWER">BUS-POWER · alimentation</option>
+                  <option value="BUS-DATA">BUS-DATA · avionique</option>
+                  <option value="BUS-PAYLOAD">BUS-PAYLOAD · équipement</option>
+                  <option value="ISOLATED">ISOLÉ · non connecté</option>
+                </select>
+              </label>
               <div
                 className={`studio-part-provenance ${selected.catalogSource === "manufacturer" ? "is-catalog" : selected.catalogSource === "user" ? "is-user" : "is-concept"}`}
               >

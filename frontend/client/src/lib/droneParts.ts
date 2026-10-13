@@ -218,6 +218,14 @@ export const dronePartCatalog: DronePartDefinition[] = [
     geometry: "mount",
   },
   {
+    id: "rescue-package",
+    label: "Module colis de secours (simulation)",
+    category: "payload",
+    use: "Interface de scénario au sol — aucun mécanisme de largage réel",
+    massKg: 0.24,
+    geometry: "mount",
+  },
+  {
     id: "multispectral-camera",
     label: "Caméra multispectrale",
     category: "payload",

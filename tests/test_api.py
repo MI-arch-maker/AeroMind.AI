@@ -79,9 +79,9 @@ def test_superadmin_email_allowlist_is_case_insensitive():
     assert not settings.is_superadmin_email('other@example.com')
 
 
-def test_primary_superadmin_is_configured_by_default():
+def test_no_superadmin_is_configured_by_default():
     settings = Settings(AEROMIND_SESSION_SECRET='local-development-secret-with-at-least-32-bytes')
-    assert settings.is_superadmin_email('mcgregoralvin14@gmail.com')
+    assert not settings.is_superadmin_email('admin@example.com')
 
 
 def test_logout_clears_oidc_cookies():

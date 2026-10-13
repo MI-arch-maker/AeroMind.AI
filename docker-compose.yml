@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aeromind
+      POSTGRES_USER: aeromind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aeromind-local-only}
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    volumes: [aeromind_pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aeromind -d aeromind"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-runtime
+    environment:
+      DATABASE_URL: postgresql://aeromind:${POSTGRES_PASSWORD:-aeromind-local-only}@postgres:5432/aeromind
+      AEROMIND_ENV: development
+      AEROMIND_SESSION_SECRET: ${AEROMIND_SESSION_SECRET:-local-compose-only-change-this-secret-123456}
+      AEROMIND_ALLOWED_HOSTS: "*"
+      AEROMIND_ALLOWED_ORIGINS: http://localhost:8080
+      HARDWARE_CONTROL: ${HARDWARE_CONTROL:-false}
+      AEROMIND_GEOFENCE: ${AEROMIND_GEOFENCE:-}
+      AEROMIND_MAVLINK_URL: ${AEROMIND_MAVLINK_URL:-udpin:0.0.0.0:14550}
+    ports: ["${API_PORT:-10000}:10000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 25s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-runtime
+    ports: ["${FRONTEND_PORT:-8080}:80"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api-test:
+    profiles: [verify]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-runtime
+    entrypoint: ["python", "-m", "pytest"]
+    command: ["-q", "tests", "sitl_modules/tests"]
+    environment:
+      DATABASE_URL: postgresql://aeromind:${POSTGRES_PASSWORD:-aeromind-local-only}@postgres:5432/aeromind
+      AEROMIND_ENV: development
+      AEROMIND_SESSION_SECRET: ${AEROMIND_SESSION_SECRET:-local-compose-only-change-this-secret-123456}
+      HARDWARE_CONTROL: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  frontend-test:
+    profiles: [verify]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-builder
+    working_dir: /frontend
+    entrypoint: ["sh", "-lc"]
+    command: ["pnpm run check && pnpm test -- --run"]
+
+  sitl:
+    image: ${SITL_IMAGE:-ardupilot/ardupilot-dev:latest}
+    profiles: [sitl]
+    command: ["bash", "-lc", "sim_vehicle.py -v ArduCopter -f quad --no-rebuild --out=udp:api:14550"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  aeromind_pgdata:

@@ -3,9 +3,9 @@ import { droneCatalog } from "./droneCatalog";
 import { defaultConcept, defaultRequirements, getCalculationProfile, runSimulation } from "./aeroEngine";
 
 describe("AeroMind drone catalog profiles", () => {
-  it("contains fifty-six unique editable civil and non-armed defense profiles", () => {
-    expect(droneCatalog).toHaveLength(56);
-    expect(new Set(droneCatalog.map(design => design.id)).size).toBe(56);
+  it("contains sixty unique editable civil and non-armed defense profiles", () => {
+    expect(droneCatalog).toHaveLength(60);
+    expect(new Set(droneCatalog.map(design => design.id)).size).toBe(60);
     for (const design of droneCatalog) {
       expect(design.configuration.wingspan ?? 0).toBeGreaterThan(0);
       expect(design.configuration.fuselageLength ?? 0).toBeGreaterThan(0);
@@ -17,10 +17,10 @@ describe("AeroMind drone catalog profiles", () => {
   });
 
   it("covers base and specialized architectures with distinct starting configurations", () => {
-    expect(droneCatalog.filter(design => design.key === "fixed-wing")).toHaveLength(23);
+    expect(droneCatalog.filter(design => design.key === "fixed-wing")).toHaveLength(27);
     expect(droneCatalog.filter(design => design.key === "quadcopter")).toHaveLength(18);
     expect(droneCatalog.filter(design => design.key === "vtol")).toHaveLength(15);
-    expect(new Set(droneCatalog.map(design => design.modelType)).size).toBe(20);
+    expect(new Set(droneCatalog.map(design => design.modelType)).size).toBe(21);
     expect(new Set(droneCatalog.map(design => design.configuration.motorCount)).size).toBeGreaterThan(1);
   });
 

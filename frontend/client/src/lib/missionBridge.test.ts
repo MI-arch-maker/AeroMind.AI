@@ -14,6 +14,8 @@ describe("read-only mission telemetry bridge", () => {
             speedKmh: 28,
             batteryPct: 74,
             headingDeg: 182,
+            pitchDeg: -4.5,
+            rollDeg: 1.8,
             mode: "AUTO",
           },
         })
@@ -25,6 +27,8 @@ describe("read-only mission telemetry bridge", () => {
       speedKmh: 28,
       batteryPct: 74,
       headingDeg: 182,
+      pitchDeg: -4.5,
+      rollDeg: 1.8,
       flightMode: "AUTO",
     });
   });

@@ -1,4 +1,5 @@
 import base64
+import os
 import shutil
 import time
 from contextlib import asynccontextmanager
@@ -13,8 +14,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import get_settings
 from .copilot import router as copilot_router
 from .engineering_extensions import router as engineering_extensions_router
-from .admin import activity as admin_activity, create_account, list_accounts, update_account
+from .admin import activity as admin_activity, create_account, delete_account, list_accounts, update_account
 from .oidc import _verified, router as oidc_router
+from .business_api import router as business_router
+from .hardware_api import router as hardware_router, _controllers
+from .database import ping_database, SessionLocal
+from .models import User, Project, Drone, Simulation, Report, LabSession
+from sqlalchemy import select
+from uuid import uuid4
 from sitl_modules.api import router as sitl_router
 
 
@@ -39,13 +46,15 @@ settings = get_settings()
 app = FastAPI(title='AeroMind AI API', version='2.0.0', docs_url='/docs' if settings.environment != 'production' else None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.hosts)
 if settings.origins:
-    app.add_middleware(CORSMiddleware, allow_origins=settings.origins, allow_credentials=True, allow_methods=['GET', 'POST'], allow_headers=['Authorization', 'Content-Type', 'X-Request-ID'])
+    app.add_middleware(CORSMiddleware, allow_origins=settings.origins, allow_credentials=True, allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allow_headers=['Authorization', 'Content-Type', 'X-Request-ID'])
 
 FRONTEND_DIR = Path('frontend/dist')
 FRONTEND_INDEX = FRONTEND_DIR / 'index.html'
 if FRONTEND_DIR.is_dir():
     app.mount('/assets', StaticFiles(directory=FRONTEND_DIR / 'assets'), name='frontend-assets')
 
+app.include_router(business_router)
+app.include_router(hardware_router)
 app.include_router(oidc_router)
 app.include_router(copilot_router)
 app.include_router(engineering_extensions_router)
@@ -64,9 +73,21 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+def _active_control_mode():
+    if os.getenv('HARDWARE_CONTROL', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+        return 'simulation'
+    return 'hardware' if any(controller.mode == 'HARDWARE' for controller in _controllers.values()) else 'simulation'
+
+
 @app.get('/api/health')
 def health():
-    return {'status': 'ok'}
+    try:
+        connected = ping_database()
+        database = 'connected' if connected else 'disconnected'
+    except Exception:
+        connected = False
+        database = 'disconnected'
+    return {'status': 'ok' if connected else 'degraded', 'version': app.version, 'application': 'aeromind-ai', 'database': database, 'mode': _active_control_mode()}
 
 
 @app.get('/api/platform/config.js', include_in_schema=False)
@@ -127,6 +148,7 @@ async def trpc_compat(request: Request, procedure: str, aeromind_session: str | 
     if any(name.endswith(suffix) for suffix in (
         'superAdmin.accounts', 'superAdmin.activity',
         'superAdmin.createAccount', 'superAdmin.updateAccount',
+        'superAdmin.deleteAccount',
     )):
         if not current_user:
             return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
@@ -167,10 +189,84 @@ async def trpc_compat(request: Request, procedure: str, aeromind_session: str | 
             data = update_account(current_user, account_id, changes)
         except (KeyError, ValueError) as exc:
             return _trpc_error(400, 'BAD_REQUEST', str(exc))
-    elif any(name.endswith(suffix) for suffix in (
-        'projects.list', 'simulationRuns.list', 'designVersions.list',
-        'reports.list', 'auditEvents.list',
-    )):
+    elif name.endswith('superAdmin.deleteAccount'):
+        try:
+            data = delete_account(current_user, str(payload.get('id', '')))
+        except (KeyError, ValueError) as exc:
+            return _trpc_error(400, 'BAD_REQUEST', str(exc))
+    elif name.endswith('projects.list'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        with SessionLocal() as db:
+            data = []
+            for record in db.scalars(select(Project).where(Project.user_id == current_user['id']).order_by(Project.created_at.desc())):
+                body = __import__('json').loads(record.data_json or '{}')
+                data.append({'id': record.id, 'project': body.get('project', {'name': record.name, 'status': 'active', 'version': '1.0'}), 'config': body.get('config', {}), 'requirements': body.get('requirements', []), 'runId': body.get('runId', 'SIM-000')})
+    elif name.endswith('projects.create'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        import json
+        project_id, drone_id = str(uuid4()), str(uuid4())
+        config = payload.get('config', {}) if isinstance(payload.get('config', {}), dict) else {}
+        config = {**config, 'airframe': config.get('airframe') or 'quadcopter', 'motorCount': config.get('motorCount') or 4, 'massKg': config.get('massKg') or 1.2, 'batteryWh': config.get('batteryWh') or 100}
+        project_data = {'project': payload.get('project', {}), 'config': config, 'requirements': payload.get('requirements', []), 'runId': payload.get('runId', 'SIM-000')}
+        with SessionLocal() as db:
+            if db.get(User, current_user['id']) is None:
+                db.add(User(id=current_user['id'], email=current_user['email']))
+                db.flush()
+            db.add(Project(id=project_id, user_id=current_user['id'], name=project_data['project'].get('name', 'Nouveau projet'), data_json=json.dumps(project_data), active_drone_id=drone_id))
+            db.commit()
+            db.add(Drone(id=drone_id, user_id=current_user['id'], project_id=project_id, name='Drone par défaut', config_json=json.dumps(project_data['config'])))
+            db.commit()
+        data = {'id': project_id, **project_data}
+    elif name.endswith('simulationRuns.list'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        with SessionLocal() as db:
+            records = db.scalars(select(Simulation).where(Simulation.user_id == current_user['id'], Simulation.project_id == str(payload or ''))).all()
+            data = [__import__('json').loads(x.data_json) for x in records]
+    elif name.endswith('simulationRuns.create'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        import json
+        project_id = str(payload.get('id', ''))
+        with SessionLocal() as db:
+            project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == current_user['id']))
+            if project is None: return _trpc_error(404, 'NOT_FOUND', 'Project not found')
+            result = payload.get('result', {})
+            record = Simulation(id=str(uuid4()), user_id=current_user['id'], project_id=project_id, data_json=json.dumps({'runId': result.get('runId', 'SIM-001'), 'version': '1.0', 'result': result, 'config': payload.get('config', {})}))
+            db.add(record); db.commit(); data = json.loads(record.data_json)
+    elif name.endswith('projects.delete'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        project_id = str(payload.get('id', payload) if isinstance(payload, dict) else payload)
+        with SessionLocal() as db:
+            project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == current_user['id']))
+            if project is None: return _trpc_error(404, 'NOT_FOUND', 'Project not found')
+            db.delete(project); db.commit(); data = {'deleted': True}
+    elif name.endswith('projects.saveSnapshot'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        import json
+        project_id = str(payload.get('id', ''))
+        with SessionLocal() as db:
+            project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == current_user['id']))
+            if project is None: return _trpc_error(404, 'NOT_FOUND', 'Project not found')
+            state = {'project': payload.get('project', {}), 'config': payload.get('config', {}), 'requirements': payload.get('requirements', []), 'runId': payload.get('runId', 'SIM-000')}
+            project.name = state['project'].get('name', project.name); project.data_json = json.dumps(state)
+            if project.active_drone_id:
+                drone = db.get(Drone, project.active_drone_id)
+                if drone is not None: drone.config_json = json.dumps(state['config'])
+            db.commit(); data = {'id': project_id, **state}
+    elif name.endswith('reports.create'):
+        if not current_user:
+            return _trpc_error(401, 'UNAUTHORIZED', 'OIDC authentication required')
+        import json
+        project_id = str(payload.get('id', ''))
+        with SessionLocal() as db:
+            if db.scalar(select(Project).where(Project.id == project_id, Project.user_id == current_user['id'])) is None: return _trpc_error(404, 'NOT_FOUND', 'Project not found')
+            record = Report(id=str(uuid4()), user_id=current_user['id'], project_id=project_id, data_json=json.dumps(payload)); db.add(record); db.commit(); data = {'id': record.id, **payload}
+    elif any(name.endswith(suffix) for suffix in ('designVersions.list', 'auditEvents.list')):
         data = []
     elif name.endswith('labBench.registry'):
         data = {'devices': [], 'drivers': [], 'updatedAt': None}
@@ -212,12 +308,16 @@ def favicon():
 
 @app.get('/api/ready')
 def ready():
-    return {'ready': True, 'database': 'not-configured', 'mode': 'in-memory-safe'}
+    try:
+        ping_database()
+        return {'ready': True, 'database': 'connected', 'mode': _active_control_mode()}
+    except Exception as exc:
+        raise HTTPException(503, detail={'ready': False, 'database': 'disconnected', 'error': type(exc).__name__})
 
 
 @app.get('/api/capabilities')
 def capabilities():
-    return {'service': 'aeromind-ai', 'version': '2.0.0', 'oidc': bool(settings.oidc), 'llm': bool(settings.openai_api_key), 'sitl': True, 'hardware_control': False, 'mission_upload': False, 'telemetry_write': False}
+    return {'service': 'aeromind-ai', 'version': '2.0.0', 'oidc': bool(settings.oidc), 'llm': bool(settings.openai_api_key), 'sitl': True, 'hardware_control': os.getenv('HARDWARE_CONTROL', '').strip().lower() in ('1', 'true', 'yes', 'on'), 'mission_upload': False, 'telemetry_write': False}
 
 
 @app.get('/api/system/status')
@@ -232,7 +332,7 @@ def safety_check(aeromind_session: str | None = Cookie(default=None)):
     if not _current_user(aeromind_session):
         raise HTTPException(401, 'OIDC authentication required')
     result = _engine_status()
-    return {'safe': bool(result.get('loaded')), 'hardware_control': False, 'result': result}
+    return {'safe': bool(result.get('loaded')) and _active_control_mode() == 'simulation', 'hardware_control': os.getenv('HARDWARE_CONTROL', '').strip().lower() in ('1', 'true', 'yes', 'on'), 'mode': _active_control_mode(), 'result': result}
 
 
 @app.post('/api/ops/cfd/prepare')

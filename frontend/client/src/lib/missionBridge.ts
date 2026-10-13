@@ -5,6 +5,8 @@ export type MissionTelemetryFrame = {
   speedKmh?: number;
   batteryPct?: number;
   headingDeg?: number;
+  pitchDeg?: number;
+  rollDeg?: number;
   flightMode?: string;
 };
 
@@ -64,6 +66,8 @@ export function parseMissionTelemetryPayload(
       0,
       360
     ),
+    pitchDeg: finiteNumber(data, ["pitchDeg", "pitch", "attitudePitchDeg"], -180, 180),
+    rollDeg: finiteNumber(data, ["rollDeg", "roll", "attitudeRollDeg"], -180, 180),
     flightMode:
       typeof data.flightMode === "string"
         ? data.flightMode.slice(0, 40)

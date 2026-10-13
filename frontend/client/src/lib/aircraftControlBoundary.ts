@@ -8,6 +8,10 @@ export type ControlCommandKind =
   | "simulation-hold"
   | "simulation-return"
   | "simulation-land"
+  /** Armement virtuel du scénario local : état d'interface, aucune sortie actionneur. */
+  | "simulation-arm"
+  /** Désarmement virtuel : retour au banc au sol simulé. */
+  | "simulation-disarm"
   | "actuator-write"
   | "arm"
   | "mission-upload";
@@ -39,6 +43,8 @@ export const CONTROL_BOUNDARY = {
   telemetryWriteEnabled: false,
   missionUploadEnabled: false,
   allowedTransports: ["simulation", "hil", "hardware-readonly"] as const,
+  /** L'armement virtuel ne quitte jamais le scénario local. */
+  virtualArmingScope: "simulation-only" as const,
   deniedCommands: ["actuator-write", "arm", "mission-upload"] as const,
 };
 
@@ -49,6 +55,8 @@ const simulationCommands = new Set<ControlCommandKind>([
   "simulation-hold",
   "simulation-return",
   "simulation-land",
+  "simulation-arm",
+  "simulation-disarm",
 ]);
 
 export function authorizeControlCommand(
@@ -69,6 +77,19 @@ export function authorizeControlCommand(
       mode: transport,
       command: command.kind,
       reason: "Mode matériel lecture seule : seules les observations sont autorisées.",
+    };
+  }
+  // L'armement virtuel n'est accepté que dans le transport de simulation : il
+  // modifie l'état d'interface et les couches de vision, jamais un actionneur.
+  if (
+    (command.kind === "simulation-arm" || command.kind === "simulation-disarm") &&
+    transport !== "simulation"
+  ) {
+    return {
+      accepted: false,
+      mode: transport,
+      command: command.kind,
+      reason: "L’armement virtuel est borné au transport de simulation local.",
     };
   }
   if (!simulationCommands.has(command.kind)) {

@@ -123,6 +123,33 @@ describe("AeroMind preliminary simulation engine", () => {
     expect(withMotors.totalMassKg - baseline.totalMassKg).toBeCloseTo(0.48);
   });
 
+  it("uses component drag, auxiliary power, and degraded environment in endurance estimates", () => {
+    const baseline = runSimulation(defaultConcept, defaultRequirements);
+    const equipped = runSimulation({
+      ...defaultConcept,
+      installedMaterials: [{
+        id: "thermal-payload",
+        label: "Capteur thermique de test",
+        use: "Module synthétique",
+        massKg: 0.16,
+        geometry: "mount",
+        category: "payload",
+        dragAreaM2: 0.03,
+        powerDrawW: 18,
+        connectedTo: "BUS-PAYLOAD",
+      }],
+    }, defaultRequirements);
+    const stressed = runSimulation({
+      ...defaultConcept,
+      missionEnvironment: { ambientC: -10, windKmh: 55, emiLevel: 0.8 },
+    }, defaultRequirements);
+
+    expect(equipped.estimatedPowerW).toBeGreaterThan(baseline.estimatedPowerW);
+    expect(equipped.enduranceH).toBeLessThan(baseline.enduranceH);
+    expect(stressed.enduranceH).toBeLessThan(baseline.enduranceH);
+    expect(stressed.energyUsableWh).toBeLessThan(baseline.energyUsableWh);
+  });
+
   it("uses distinct calculation bases for specialized architectures", () => {
     const flyingWing = runSimulation({ ...defaultConcept, modelType: "aile-volante" }, defaultRequirements, "SIM-WING");
     const conventional = runSimulation({ ...defaultConcept, modelType: "voilure-conventionnelle" }, defaultRequirements, "SIM-CONVENTIONAL");
